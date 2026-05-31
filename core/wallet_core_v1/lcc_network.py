@@ -1,0 +1,27 @@
+LCC_NAME = "LitecoinCash"
+LCC_SHORTNAME = "LCC"
+LCC_NET = "mainnet"
+
+LCC_P2PKH_VERBYTE_HEX = "1c"
+LCC_P2PKH_PREFIX = bytes.fromhex("1c")
+
+LCC_P2SH_VERBYTES_HEX = ["32", "05"]
+LCC_P2SH_PREFIXES = (
+    bytes.fromhex("32"),
+    bytes.fromhex("05"),
+)
+
+LCC_WIF_BYTE_HEX = "b0"
+LCC_WIF_BYTE = bytes.fromhex("b0")
+
+LCC_GENESIS_HASH = (
+    "12a765e31ffd4059bada1e25190f6e98"
+    "c99d9714d334efa41a195a7e7e04bfe2"
+)
+
+LCC_DESERIALIZER = "SegWit"
+LCC_RPC_PORT = 62457
+LCC_REORG_LIMIT = 5000
+
+LCC_SATOSHI = 10000000
+LCC_DEFAULT_DERIVATION_PATH = "m/44'/2'/0'/0/0"

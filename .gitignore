@@ -1,0 +1,16 @@
+venv/
+__pycache__/
+*.pyc
+*.db
+*.log
+
+data/wallet_core/*.json
+data/wallet_core/backups/*
+data/wallet_core/raw_txs/*
+data/wallet_core/signed_raw/*
+data/wallet_core/tx_plans/*
+data/access_tokens.db
+
+.env
+*.bak
+*.bak_cleanup
