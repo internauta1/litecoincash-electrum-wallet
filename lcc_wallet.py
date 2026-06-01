@@ -273,7 +273,7 @@ def cmd_decode_raw(args):
 
     pretty(result)
 
-def cmd_sign_raw_dev(args):
+def cmd_sign_raw(args):
     password = getpass.getpass("Password da wallet: ")
 
     result = raw_sign_service.sign_raw(
@@ -567,9 +567,9 @@ def main():
     p_input_keys.add_argument("plan_id")
     p_input_keys.set_defaults(func=cmd_input_keys)
 
-    p_sign_raw_dev = sub.add_parser("sign-raw")
-    p_sign_raw_dev.add_argument("plan_id")
-    p_sign_raw_dev.set_defaults(func=cmd_sign_raw_dev)
+    p_sign_raw = sub.add_parser("sign-raw")
+    p_sign_raw.add_argument("plan_id")
+    p_sign_raw.set_defaults(func=cmd_sign_raw)
 
     p_decode_raw = sub.add_parser("decode-raw")
     p_decode_raw.add_argument("plan_id")
