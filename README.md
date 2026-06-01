@@ -39,6 +39,27 @@ Community Electrum-style wallet for Litecoin Cash (LCC).
 - Full SegWit wallet support
 
 ## Installation
+Quick Start
+
+Create a wallet:
+
+./lcc_wallet.py create
+
+Check wallet status and balance:
+
+./lcc_wallet.py check WALLET_ID
+
+Prepare a transaction:
+
+./lcc_wallet.py prepare-send WALLET_ID DESTINATION_ADDRESS AMOUNT
+
+Sign transaction:
+
+./lcc_wallet.py sign-raw PLAN_ID
+
+Broadcast transaction via ElectrumX:
+
+./lcc_wallet.py broadcast-electrumx PLAN_ID
 
 ```bash
 python3 -m venv venv
