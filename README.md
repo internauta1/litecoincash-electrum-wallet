@@ -113,3 +113,17 @@ Litecoin Cash Community Project.
 
 ![Broadcast via ElectrumX](screenshots/06-broadcast-electrumx.png)
 
+
+## SegWit Status
+
+SegWit receive addresses are supported.
+
+Spending from lcc1 UTXOs is not yet enabled.
+
+Current status:
+
+- C... -> C... : supported
+- C... -> lcc1... : supported
+- lcc1... receive addresses : supported
+- Spending from lcc1 UTXOs : not yet enabled
+
