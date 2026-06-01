@@ -46,25 +46,38 @@ class TxBuilderService:
         if not balance.get("ok"):
             return balance
 
-        utxos = balance.get("utxos", [])
-        total_balance = int(balance.get("total_balance", 0))
+        all_utxos = balance.get("utxos", [])
+
+        spendable_utxos = [
+            u for u in all_utxos
+            if not str(u.get("address", "")).lower().startswith("lcc1")
+        ]
+
+        total_balance = sum(int(u.get("value", 0)) for u in spendable_utxos)
+        segwit_locked_balance = sum(
+            int(u.get("value", 0))
+            for u in all_utxos
+            if str(u.get("address", "")).lower().startswith("lcc1")
+        )
 
         needed = amount_sats + fee_sats
 
         if total_balance < needed:
             return {
                 "ok": False,
-                "error": "INSUFFICIENT_FUNDS",
-                "total_balance": total_balance,
+                "error": "INSUFFICIENT_SPENDABLE_FUNDS",
+                "total_spendable_balance": total_balance,
+                "segwit_locked_balance": segwit_locked_balance,
                 "needed": needed,
                 "missing": needed - total_balance,
-                "unit": "satoshis"
+                "unit": "satoshis",
+                "message": "Spending from lcc1 UTXOs is not yet enabled. Legacy C... UTXOs are spendable."
             }
 
         selected = []
         selected_total = 0
 
-        for utxo in utxos:
+        for utxo in spendable_utxos:
             selected.append(utxo)
             selected_total += int(utxo["value"])
 
