@@ -15,7 +15,6 @@ from core.wallet_core_v1.utxo_update_service import UtxoUpdateService
 from core.wallet_core_v1.electrumx_broadcast_service import ElectrumXBroadcastService
 from core.wallet_core_v1.broadcast_service import BroadcastService
 from core.wallet_core_v1.final_validate_service import FinalValidateService
-from core.wallet_core_v1.dev_clear_service import DevClearService
 from core.wallet_core_v1.wallet_check_service import WalletCheckService
 from core.wallet_core_v1.raw_decode_service import RawDecodeService
 from core.wallet_core_v1.raw_sign_service import RawSignService
@@ -24,7 +23,6 @@ from core.wallet_core_v1.tx_signer_service import TxSignerService
 from core.wallet_core_v1.wallet_core_service import WalletCoreService
 from core.wallet_core_v1.wallet_balance_service import WalletBalanceService
 from core.wallet_core_v1.tx_builder_service import TxBuilderService
-from core.wallet_core_v1.dev_fund_service import DevFundService
 
 
 
@@ -37,14 +35,12 @@ utxo_update_service = UtxoUpdateService()
 electrumx_broadcast_service = ElectrumXBroadcastService()
 broadcast_service = BroadcastService()
 final_validate_service = FinalValidateService()
-dev_clear_service = DevClearService()
 wallet_check_service = WalletCheckService()
 raw_decode_service = RawDecodeService()
 service = WalletCoreService()
 balance_service = WalletBalanceService()
 tx_builder = TxBuilderService()
 tx_signer = TxSignerService()
-dev_fund_service = DevFundService()
 raw_tx_service = RawTxService()
 raw_sign_service = RawSignService()
 
@@ -483,7 +479,7 @@ def cmd_import_seed(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="LCC Wallet Local CLI — DEV"
+        description="LitecoinCash Electrum Wallet CLI"
     )
 
     sub = parser.add_subparsers(dest="command")
@@ -527,25 +523,12 @@ def main():
     p_prepare.add_argument("--fee", type=int, default=10000)
     p_prepare.set_defaults(func=cmd_prepare_send)
 
-    p_dev_fund = sub.add_parser("dev-fund")
-    p_dev_fund.add_argument("wallet_id")
-    p_dev_fund.add_argument("amount", type=float)
-    p_dev_fund.set_defaults(func=cmd_dev_fund)
-
     p_plans = sub.add_parser("plans")
     p_plans.set_defaults(func=cmd_plans)
 
     p_plan = sub.add_parser("plan")
     p_plan.add_argument("plan_id")
     p_plan.set_defaults(func=cmd_plan)
-
-    p_sign_dev = sub.add_parser("sign-plan-dev")
-    p_sign_dev.add_argument("plan_id")
-    p_sign_dev.set_defaults(func=cmd_sign_plan_dev)
-
-    p_verify_dev = sub.add_parser("verify-plan-dev")
-    p_verify_dev.add_argument("plan_id")
-    p_verify_dev.set_defaults(func=cmd_verify_plan_dev)
 
     p_raw_unsigned = sub.add_parser("raw-unsigned")
     p_raw_unsigned.add_argument("plan_id")
@@ -570,10 +553,6 @@ def main():
     p_check = sub.add_parser("check")
     p_check.add_argument("wallet_id")
     p_check.set_defaults(func=cmd_check)
-
-    p_dev_clear = sub.add_parser("dev-clear")
-    p_dev_clear.add_argument("wallet_id")
-    p_dev_clear.set_defaults(func=cmd_dev_clear)
 
     p_validate_final = sub.add_parser("validate-final")
     p_validate_final.add_argument("plan_id")
