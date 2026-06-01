@@ -1,56 +1,44 @@
-# LCC Wallet V1
+# LitecoinCash Electrum Wallet
 
-Community wallet for Litecoin Cash (LCC).
-
-This is the first public release candidate of the LCC Wallet backend/API.
+Community Electrum-style wallet for Litecoin Cash (LCC).
 
 ## Features
 
-- BIP39 seed wallet
-- HD derivation: m/44'/2'/0'/0/x
-- Legacy LCC addresses: C...
-- Send to C... addresses
-- Send to lcc1... Bech32 / SegWit addresses
+- BIP39 mnemonic wallets
+- HD wallet derivation
+- Encrypted seed storage
+- Legacy LCC addresses (C...)
+- Send to legacy addresses
+- Send to SegWit addresses (lcc1...)
 - ElectrumX backend support
-- Encrypted wallet storage
-- Backup and restore
-- Prepare transaction
-- Sign raw transaction
-- Validate transaction
-- Broadcast transaction
 - Local UTXO tracking
+- Transaction preparation
+- Raw transaction signing
+- Transaction validation
+- Transaction broadcast
 
-## Current status
+## Current Status
 
-Stable V1 release candidate.
+### Supported
 
-Supported:
-
-- Receive to C... addresses
+- Create wallets
+- Import wallets
+- Export encrypted backups
+- Receive with C... addresses
 - Spend from C... addresses
-- Send to C... addresses
 - Send to lcc1... addresses
+- ElectrumX synchronization
 
-Not yet supported:
+### Planned
 
-- Native internal lcc1 wallet addresses
+- Native lcc1 wallet accounts
 - Spending from lcc1 UTXOs
-- Google login / encrypted cloud backup
-- Desktop app installer
+- Desktop Wallet for Windows
+- Desktop Wallet for Linux
+- Google encrypted backup integration
+- Full SegWit wallet support
 
-These are planned for V2.
-
-## Security
-
-This is intended to be a non-custodial wallet.
-
-Users must save their seed phrase.
-
-The server must never store plain seed phrases.
-
-Use small amounts first. This software is under active development.
-
-## Install
+## Installation
 
 ```bash
 python3 -m venv venv
@@ -58,3 +46,22 @@ source venv/bin/activate
 pip install -r requirements.txt
 uvicorn api.wallet_api:app --host 0.0.0.0 --port 8080
 curl http://127.0.0.1:8080/
+```
+
+## Security
+
+This is a non-custodial wallet.
+
+Users must securely store their seed phrase.
+
+Never share your seed phrase with anyone.
+
+Always test with small amounts before storing significant funds.
+
+## License
+
+MIT License
+
+## Community
+
+Litecoin Cash Community Project.
