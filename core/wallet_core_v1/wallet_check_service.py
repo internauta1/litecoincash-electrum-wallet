@@ -70,9 +70,11 @@ class WalletCheckService:
                 })
 
         receive_address = None
+        receive_address_segwit = None
 
         if balance.get("addresses"):
             receive_address = balance["addresses"][0]["address"]
+            receive_address_segwit = balance["addresses"][0].get("segwit_address")
 
         return {
             "ok": True,
@@ -92,6 +94,7 @@ class WalletCheckService:
                 "address_count": balance.get("address_count")
             },
             "receive_address": receive_address,
+            "receive_address_segwit": receive_address_segwit,
             "plans_count": len(plans),
             "plans": plans,
             "signed_raw_count": len(signed),
