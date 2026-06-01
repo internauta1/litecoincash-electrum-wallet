@@ -169,6 +169,66 @@ def derive_private_key(seed: bytes, path: str):
     return private_key
 
 
+def bech32_polymod(values):
+    gen = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+    chk = 1
+
+    for value in values:
+        top = chk >> 25
+        chk = (chk & 0x1ffffff) << 5 ^ value
+
+        for i in range(5):
+            if (top >> i) & 1:
+                chk ^= gen[i]
+
+    return chk
+
+
+def bech32_hrp_expand(hrp: str):
+    return [ord(x) >> 5 for x in hrp] + [0] + [ord(x) & 31 for x in hrp]
+
+
+def bech32_create_checksum(hrp: str, data: list):
+    values = bech32_hrp_expand(hrp) + data
+    polymod = bech32_polymod(values + [0, 0, 0, 0, 0, 0]) ^ 1
+
+    return [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
+
+
+def bech32_encode(hrp: str, data: list):
+    charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+    combined = data + bech32_create_checksum(hrp, data)
+
+    return hrp + "1" + "".join([charset[d] for d in combined])
+
+
+def convertbits(data: bytes, frombits: int, tobits: int, pad: bool = True):
+    acc = 0
+    bits = 0
+    ret = []
+    maxv = (1 << tobits) - 1
+
+    for value in data:
+        acc = (acc << frombits) | value
+        bits += frombits
+
+        while bits >= tobits:
+            bits -= tobits
+            ret.append((acc >> bits) & maxv)
+
+    if pad and bits:
+        ret.append((acc << (tobits - bits)) & maxv)
+
+    return ret
+
+
+def lcc_segwit_address_from_pubkey(public_key: bytes) -> str:
+    witness_program = hash160(public_key)
+    data = [0] + list(convertbits(witness_program, 8, 5))
+
+    return bech32_encode("lcc", data)
+
+
 def lcc_address_from_mnemonic(
     mnemonic_words: str,
     path: str = LCC_DEFAULT_DERIVATION_PATH
@@ -183,8 +243,11 @@ def lcc_address_from_mnemonic(
         hash160(public_key)
     )
 
+    segwit_address = lcc_segwit_address_from_pubkey(public_key)
+
     return {
         "address": address,
+        "segwit_address": segwit_address,
         "public_key": public_key.hex(),
         "derivation": path,
         "warning": "Endereço derivado com sucesso."
@@ -225,6 +288,7 @@ def lcc_addresses_from_mnemonic(
             "index": i,
             "path": info["derivation"],
             "address": info["address"],
+            "segwit_address": info.get("segwit_address"),
             "public_key": info["public_key"]
         })
 
