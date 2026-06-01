@@ -17,9 +17,16 @@ def sha256(data: bytes) -> bytes:
 
 
 def address_to_scripthash(address: str):
-    from core.wallet_core_v1.raw_tx_service import p2pkh_script_pubkey
+    from core.wallet_core_v1.raw_tx_service import (
+        p2pkh_script_pubkey,
+        p2wpkh_script_pubkey
+    )
 
-    script = p2pkh_script_pubkey(address)
+    if address.lower().startswith("lcc1"):
+        script = p2wpkh_script_pubkey(address)
+    else:
+        script = p2pkh_script_pubkey(address)
+
     return sha256(script)[::-1].hex()
 
 
@@ -47,10 +54,11 @@ class UtxoSyncService:
             addresses.append(primary)
 
         for item in wallet.get("addresses", []):
-            addr = item.get("address")
+            for key in ("address", "segwit_address"):
+                addr = item.get(key)
 
-            if addr and addr not in addresses:
-                addresses.append(addr)
+                if addr and addr not in addresses:
+                    addresses.append(addr)
 
         return addresses
 

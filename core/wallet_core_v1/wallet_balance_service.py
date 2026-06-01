@@ -50,7 +50,14 @@ class WalletBalanceService:
                 "error": "NO_ADDRESSES_FOUND"
             }
 
-        address_list = [a["address"] for a in addresses]
+        address_list = []
+
+        for item in addresses:
+            for key in ("address", "segwit_address"):
+                addr = item.get(key)
+
+                if addr and addr not in address_list:
+                    address_list.append(addr)
 
         conn = sqlite3.connect(str(UTXO_DB))
         conn.row_factory = sqlite3.Row
@@ -87,15 +94,25 @@ class WalletBalanceService:
 
         balances = {}
 
-        address_meta = {
-            a["address"]: a
-            for a in addresses
-        }
+        address_meta = {}
+
+        for item in addresses:
+            legacy = item.get("address")
+            segwit = item.get("segwit_address")
+
+            if legacy:
+                address_meta[legacy] = item
+
+            if segwit:
+                address_meta[segwit] = item
 
         for address in address_list:
+            meta = address_meta.get(address, {})
+
             balances[address] = {
                 "address": address,
-                "segwit_address": address_meta.get(address, {}).get("segwit_address"),
+                "linked_legacy_address": meta.get("address") if address.startswith("lcc1") else None,
+                "segwit_address": meta.get("segwit_address"),
                 "balance": 0,
                 "utxos_count": 0
             }
