@@ -119,6 +119,35 @@ def cmd_broadcast_electrumx(args):
         plan_id=args.plan_id
     )
 
+    pretty({
+        "pre_broadcast_validation": validation
+    })
+
+    if not validation.get("ready_for_broadcast"):
+        return
+
+    print("\n⚠️  ATENÇÃO: isto vai transmitir uma transação real via ElectrumX.")
+    print("Escreva BROADCAST para continuar.")
+    c1 = input("> ")
+
+    if c1 != "BROADCAST":
+        pretty({"ok": False, "error": "CANCELLED_STEP_1"})
+        return
+
+    print("Confirma novamente. Escreva ENVIAR.")
+    c2 = input("> ")
+
+    if c2 != "ENVIAR":
+        pretty({"ok": False, "error": "CANCELLED_STEP_2"})
+        return
+
+    result = electrumx_broadcast_service.broadcast_plan(
+        plan_id=args.plan_id
+    )
+
+    pretty(result)
+
+
 def cmd_export_backup(args):
     password = input("Password para encriptar backup: ").strip()
 
@@ -247,7 +276,7 @@ def cmd_decode_raw(args):
 def cmd_sign_raw_dev(args):
     password = getpass.getpass("Password da wallet: ")
 
-    result = raw_sign_service.sign_raw_dev(
+    result = raw_sign_service.sign_raw(
         plan_id=args.plan_id,
         password=password
     )

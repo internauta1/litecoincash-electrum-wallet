@@ -65,3 +65,30 @@ MIT License
 ## Community
 
 Litecoin Cash Community Project.
+
+## Screenshots
+
+### Create Wallet
+
+![Create Wallet](screenshots/01-create-wallet.png)
+
+### Check Wallet
+
+![Check Wallet](screenshots/02-check-funded-wallet.png)
+
+### Prepare Transaction
+
+![Prepare Transaction](screenshots/03-prepare-send.png)
+
+### Sign Transaction
+
+![Sign Transaction](screenshots/04-sign-raw.png)
+
+### Validate Transaction
+
+![Validate Transaction](screenshots/05-validate-final.png)
+
+### Broadcast via ElectrumX
+
+![Broadcast via ElectrumX](screenshots/06-broadcast-electrumx.png)
+
