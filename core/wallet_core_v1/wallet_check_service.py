@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from core.wallet_core_v1.utxo_sync_service import UtxoSyncService
 from core.wallet_core_v1.wallet_core_service import WalletCoreService
 from core.wallet_core_v1.wallet_balance_service import WalletBalanceService
 
@@ -12,8 +13,10 @@ SIGNED_DIR = Path("data/wallet_core/signed_raw")
 class WalletCheckService:
 
     def __init__(self):
+
         self.wallet_service = WalletCoreService()
         self.balance_service = WalletBalanceService()
+        self.utxo_sync = UtxoSyncService()
 
     def check_wallet(self, wallet_id: str):
         wallets = self.wallet_service.list_wallets()
@@ -34,6 +37,10 @@ class WalletCheckService:
                 "error": "WALLET_NOT_FOUND"
             }
 
+        try:
+            self.utxo_sync.sync_wallet_utxos(wallet_id)
+        except:
+            pass
         balance = self.balance_service.get_balance(wallet_id)
 
         plans = []
