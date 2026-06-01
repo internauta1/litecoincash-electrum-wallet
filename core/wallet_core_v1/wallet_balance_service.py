@@ -87,9 +87,15 @@ class WalletBalanceService:
 
         balances = {}
 
+        address_meta = {
+            a["address"]: a
+            for a in addresses
+        }
+
         for address in address_list:
             balances[address] = {
                 "address": address,
+                "segwit_address": address_meta.get(address, {}).get("segwit_address"),
                 "balance": 0,
                 "utxos_count": 0
             }
@@ -126,7 +132,8 @@ class WalletBalanceService:
                     "wallet_id": wallet_id,
                     "label": result.get("label"),
                     "receive_address": item["address"],
-                    "message": "Use este endereço para receber LCC."
+                    "receive_address_segwit": item.get("segwit_address"),
+                    "message": "Use estes endereços para receber LCC."
                 }
 
         return {
