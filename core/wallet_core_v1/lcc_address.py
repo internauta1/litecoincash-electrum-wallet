@@ -313,12 +313,16 @@ def private_key_for_address(
             hash160(public_key)
         )
 
-        if address == target_address:
+        segwit_address = lcc_segwit_address_from_pubkey(public_key)
+
+        if address == target_address or segwit_address == target_address:
             return {
                 "ok": True,
                 "index": i,
                 "path": path,
                 "address": address,
+                "segwit_address": segwit_address,
+                "matched_address": target_address,
                 "private_key": private_key.hex(),
                 "public_key": public_key.hex()
             }

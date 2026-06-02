@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal, InvalidOperation
 import secrets
 from pathlib import Path
 from datetime import datetime
@@ -25,7 +26,8 @@ class TxBuilderService:
         to_address: str,
         amount_lcc: float,
         fee_sats: int = 10000,
-        save: bool = True
+        save: bool = True,
+        allow_segwit_inputs: bool = False
     ):
         if amount_lcc <= 0:
             return {
@@ -39,7 +41,27 @@ class TxBuilderService:
                 "error": "INVALID_FEE"
             }
 
-        amount_sats = int(amount_lcc * LCC_SATOSHI)
+        try:
+            amount_decimal = Decimal(str(amount_lcc))
+        except InvalidOperation:
+            return {
+                "ok": False,
+                "error": "INVALID_AMOUNT_DECIMAL"
+            }
+
+        unit = Decimal(1) / Decimal(LCC_SATOSHI)
+
+        if amount_decimal <= 0:
+            return {
+                "ok": False,
+                "error": "INVALID_AMOUNT"
+            }
+
+        # LCC chain uses 7 decimal places.
+        # Some wallets/exchanges display 8 decimals.
+        # We accept extra decimals but truncate, never round up.
+        amount_sats = int(amount_decimal * Decimal(LCC_SATOSHI))
+        normalized_amount_lcc = amount_sats / LCC_SATOSHI
 
         balance = self.balance_service.get_balance(wallet_id)
 
@@ -48,10 +70,13 @@ class TxBuilderService:
 
         all_utxos = balance.get("utxos", [])
 
-        spendable_utxos = [
-            u for u in all_utxos
-            if not str(u.get("address", "")).lower().startswith("lcc1")
-        ]
+        if allow_segwit_inputs:
+            spendable_utxos = all_utxos
+        else:
+            spendable_utxos = [
+                u for u in all_utxos
+                if not str(u.get("address", "")).lower().startswith("lcc1")
+            ]
 
         total_balance = sum(int(u.get("value", 0)) for u in spendable_utxos)
         segwit_locked_balance = sum(
@@ -114,7 +139,8 @@ class TxBuilderService:
             "wallet_id": wallet_id,
             "status": "unsigned_plan",
             "created_at": datetime.utcnow().isoformat() + "Z",
-            "amount_lcc": amount_lcc,
+            "amount_lcc": normalized_amount_lcc,
+            "amount_lcc_requested": str(amount_lcc),
             "amount_sats": amount_sats,
             "fee_sats": fee_sats,
             "selected_utxos_count": len(selected),
@@ -122,6 +148,7 @@ class TxBuilderService:
             "change": change,
             "inputs": selected,
             "outputs": outputs,
+            "allow_segwit_inputs": allow_segwit_inputs,
             "warning": "UNSIGNED ONLY: plano de transação. Ainda não assina nem transmite."
         }
 

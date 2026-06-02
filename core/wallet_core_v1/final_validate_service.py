@@ -53,9 +53,17 @@ class FinalValidateService:
             "input_total_matches": plan_input_total == int(plan.get("selected_total", 0)),
             "decoded_outputs_total_matches_plan": decoded_output_total == plan_output_total,
             "fee_matches": expected_fee == int(plan.get("fee_sats", -1)),
-            "has_signature_script": all(
-                i.get("script_sig_len", 0) > 0
-                for i in decoded.get("inputs", [])
+            "has_signature_script": (
+                all(
+                    i.get("script_sig_len", 0) > 0
+                    for i in decoded.get("inputs", [])
+                )
+                if not decoded.get("is_segwit")
+                else len(decoded.get("witnesses", [])) == decoded.get("inputs_count")
+                and all(
+                    w.get("items_count", 0) >= 2
+                    for w in decoded.get("witnesses", [])
+                )
             ),
             "outputs_count_matches": decoded.get("outputs_count") == len(plan.get("outputs", [])),
             "inputs_count_matches": decoded.get("inputs_count") == len(plan.get("inputs", [])),

@@ -66,6 +66,12 @@ class RawDecodeService:
         version = int.from_bytes(data[offset:offset + 4], "little")
         offset += 4
 
+        is_segwit = False
+
+        if offset + 2 <= len(data) and data[offset] == 0 and data[offset + 1] == 1:
+            is_segwit = True
+            offset += 2
+
         input_count, offset = read_varint(data, offset)
 
         inputs = []
@@ -111,6 +117,24 @@ class RawDecodeService:
                 "script_pubkey": script_pubkey
             })
 
+        witnesses = []
+
+        if is_segwit:
+            for _ in range(input_count):
+                item_count, offset = read_varint(data, offset)
+                items = []
+
+                for _ in range(item_count):
+                    item_len, offset = read_varint(data, offset)
+                    item = data[offset:offset + item_len].hex()
+                    offset += item_len
+                    items.append(item)
+
+                witnesses.append({
+                    "items_count": item_count,
+                    "items": items
+                })
+
         locktime = int.from_bytes(data[offset:offset + 4], "little")
         offset += 4
 
@@ -118,10 +142,12 @@ class RawDecodeService:
             "ok": True,
             "plan_id": plan_id,
             "version": version,
+            "is_segwit": is_segwit,
             "inputs_count": input_count,
             "outputs_count": output_count,
             "inputs": inputs,
             "outputs": outputs,
+            "witnesses": witnesses,
             "locktime": locktime,
             "raw_size_bytes": len(data),
             "fully_parsed": offset == len(data),
