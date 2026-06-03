@@ -22,6 +22,8 @@ from core.wallet_core_v1.raw_tx_service import RawTxService
 from core.wallet_core_v1.tx_signer_service import TxSignerService
 from core.wallet_core_v1.wallet_core_service import WalletCoreService
 from core.wallet_core_v1.wallet_balance_service import WalletBalanceService
+from core.wallet_core_v1.paper_wallet_service import PaperWalletService
+from core.wallet_core_v1.paper_wallet_service import PaperWalletService
 from core.wallet_core_v1.tx_builder_service import TxBuilderService
 
 
@@ -337,7 +339,8 @@ def cmd_prepare_send(args):
         wallet_id=args.wallet_id,
         to_address=args.to_address,
         amount_lcc=args.amount,
-        fee_sats=args.fee
+        fee_sats=args.fee,
+        allow_segwit_inputs=getattr(args, "allow_segwit_inputs", False)
     )
 
     pretty(result)
@@ -418,6 +421,22 @@ def cmd_balance(args):
 
 def cmd_receive(args):
     result = balance_service.get_receive_address(
+        wallet_id=args.wallet_id
+    )
+
+    pretty(result)
+
+
+def cmd_paper_wallet(args):
+    result = PaperWalletService().generate(
+        wallet_id=args.wallet_id
+    )
+
+    pretty(result)
+
+
+def cmd_paper_wallet(args):
+    result = PaperWalletService().generate(
         wallet_id=args.wallet_id
     )
 
@@ -537,6 +556,11 @@ def main():
     p_receive.add_argument("wallet_id")
     p_receive.set_defaults(func=cmd_receive)
 
+    p_paper = sub.add_parser("paper-wallet")
+    p_paper.add_argument("wallet_id")
+    p_paper.set_defaults(func=cmd_paper_wallet)
+
+
     p_export = sub.add_parser("export-seed")
     p_export.add_argument("wallet_id")
     p_export.set_defaults(func=cmd_export_seed)
@@ -550,6 +574,7 @@ def main():
     p_prepare.add_argument("to_address")
     p_prepare.add_argument("amount", type=float)
     p_prepare.add_argument("--fee", type=int, default=10000)
+    p_prepare.add_argument("--allow-segwit-inputs", action="store_true")
     p_prepare.set_defaults(func=cmd_prepare_send)
 
     p_plans = sub.add_parser("plans")
