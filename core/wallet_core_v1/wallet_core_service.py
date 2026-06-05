@@ -73,16 +73,24 @@ class WalletCoreService:
 
         return plaintext.decode("utf-8")
 
-    def _generate_seed_material(self) -> str:
+    def _generate_seed_material(self, seed_words: int = 12) -> str:
         """
-        Gera seed BIP39 de 12 palavras.
+        Gera seed BIP39 de 12 ou 24 palavras.
         """
 
         mnemo = Mnemonic("english")
 
+        if seed_words == 24:
+            return mnemo.generate(strength=256)
+
         return mnemo.generate(strength=128)
 
-    def create_wallet(self, password: str, label: str = "main"):
+    def create_wallet(
+        self,
+        password: str,
+        label: str = "main",
+        seed_words: int = 12
+    ):
 
         if not password or len(password) < 10:
             return {
@@ -93,7 +101,7 @@ class WalletCoreService:
 
         wallet_id = secrets.token_hex(12)
 
-        seed_material = self._generate_seed_material()
+        seed_material = self._generate_seed_material(seed_words=seed_words)
 
         address_info = lcc_address_from_mnemonic(seed_material)
 
