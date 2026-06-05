@@ -7,7 +7,8 @@ from mnemonic import Mnemonic
 
 from core.wallet_core_v1.lcc_network import (
     LCC_P2PKH_PREFIX,
-    LCC_DEFAULT_DERIVATION_PATH
+    LCC_DEFAULT_DERIVATION_PATH,
+    LCC_SEGWIT_DERIVATION_PATH
 )
 
 
@@ -228,14 +229,14 @@ def lcc_segwit_address_from_pubkey(public_key: bytes) -> str:
 
     return bech32_encode("lcc", data)
 
-
 def lcc_address_from_mnemonic(
     mnemonic_words: str,
-    path: str = LCC_DEFAULT_DERIVATION_PATH
+    path: str = LCC_DEFAULT_DERIVATION_PATH,
+    segwit_path: str = LCC_SEGWIT_DERIVATION_PATH
 ) -> dict:
     seed = mnemonic_to_seed(mnemonic_words)
-    private_key = derive_private_key(seed, path)
 
+    private_key = derive_private_key(seed, path)
     public_key = private_key_to_public_key_compressed(private_key)
 
     address = base58check_encode(
@@ -243,13 +244,20 @@ def lcc_address_from_mnemonic(
         hash160(public_key)
     )
 
-    segwit_address = lcc_segwit_address_from_pubkey(public_key)
+    segwit_private_key = derive_private_key(seed, segwit_path)
+    segwit_public_key = private_key_to_public_key_compressed(
+        segwit_private_key
+    )
+
+    segwit_address = lcc_segwit_address_from_pubkey(segwit_public_key)
 
     return {
         "address": address,
         "segwit_address": segwit_address,
         "public_key": public_key.hex(),
+        "segwit_public_key": segwit_public_key.hex(),
         "derivation": path,
+        "segwit_derivation": segwit_path,
         "warning": "Endereço derivado com sucesso."
     }
 
@@ -260,11 +268,13 @@ def lcc_address_at_index(
     account: int = 0,
     change: int = 0
 ) -> dict:
-    path = f"m/44'/2'/{account}'/{change}/{index}"
+    path = f"m/44'/192'/{account}'/{change}/{index}"
+    segwit_path = f"m/84'/192'/{account}'/{change}/{index}"
 
     return lcc_address_from_mnemonic(
         mnemonic_words=mnemonic_words,
-        path=path
+        path=path,
+        segwit_path=segwit_path
     )
 
 
@@ -289,7 +299,10 @@ def lcc_addresses_from_mnemonic(
             "path": info["derivation"],
             "address": info["address"],
             "segwit_address": info.get("segwit_address"),
-            "public_key": info["public_key"]
+            "public_key": info["public_key"],
+            "segwit_public_key": info.get("segwit_public_key"),
+            "segwit_path": info.get("segwit_derivation")
+
         })
 
     return addresses
