@@ -616,6 +616,51 @@ class Blockchain(Logger):
             return ts
         return self.read_header(height).get('timestamp')
 
+    @classmethod
+    def dgw_next_bits_early(cls, height: int, headers: dict) -> int:
+        """LCC Dark Gravity Wave for early post-fork SHA256d blocks.
+
+        This version applies before Hive activation. It does not
+        implement skipping Hive blocks or later consensus rules.
+        """
+        last_scrypt = 1371111
+        window = 24
+        spacing = 150
+        pow_limit = int("00000000" + "ff" * 28, 16)
+
+        if height <= last_scrypt:
+            raise ValueError("DGW not active at this height")
+
+        if height - 1 - last_scrypt < window:
+            return cls.target_to_bits(pow_limit)
+
+        average = 0
+
+        for n in range(1, window + 1):
+            previous = headers[height - n]
+            target = cls.bits_to_target(previous["bits"])
+
+            if n == 1:
+                average = target
+            else:
+                average = (average * n + target) // (n + 1)
+
+        first = headers[height - window]
+        last = headers[height - 1]
+
+        actual = last["timestamp"] - first["timestamp"]
+        expected = window * spacing
+
+        actual = max(expected // 3, actual)
+        actual = min(expected * 3, actual)
+
+        target = min(
+            average * actual // expected,
+            pow_limit,
+        )
+
+        return cls.target_to_bits(target)
+
     def get_target(self, index: int) -> int:
         # compute target from chunk x, used in chunk x+1
         if constants.net.TESTNET:

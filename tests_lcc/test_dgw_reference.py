@@ -34,33 +34,6 @@ CORE_HASHES = {
     1371200: "000000000000d64fbc0e0aadb3b33cd07d582b2129553d8981856522b76f453c",
 }
 
-def expected_bits(height, headers):
-    if height - 1 - LAST_SCRYPT < WINDOW:
-        return Blockchain.target_to_bits(POW_LIMIT)
-
-    average = 0
-
-    for n in range(1, WINDOW + 1):
-        previous = headers[height - n]
-        target = Blockchain.bits_to_target(previous["bits"])
-
-        if n == 1:
-            average = target
-        else:
-            average = (average * n + target) // (n + 1)
-
-    first = headers[height - WINDOW]
-    last = headers[height - 1]
-
-    actual = last["timestamp"] - first["timestamp"]
-    expected = WINDOW * SPACING
-
-    actual = max(expected // 3, actual)
-    actual = min(expected * 3, actual)
-
-    target = min(average * actual // expected, POW_LIMIT)
-
-    return Blockchain.target_to_bits(target)
 
 
 def test_dgw_reference():
@@ -97,7 +70,7 @@ def test_dgw_reference():
         )
         previous_hash = hash_header(header)
 
-        calculated = expected_bits(height, headers)
+        calculated = Blockchain.dgw_next_bits_early(height, headers)
         actual = header["bits"]
 
         assert calculated == actual, (
