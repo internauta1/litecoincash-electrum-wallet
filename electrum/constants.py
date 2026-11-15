@@ -148,10 +148,10 @@ class BitcoinMainnet(AbstractNet):
 
     NET_NAME = "mainnet"
     TESTNET = False
-    WIF_PREFIX = 0x80
-    ADDRTYPE_P2PKH = 48
+    WIF_PREFIX = 0xb0
+    ADDRTYPE_P2PKH = 28
     ADDRTYPE_P2SH = 50
-    SEGWIT_HRP = "ltc"
+    SEGWIT_HRP = "lcc"
     MWEB_HRP = "ltcmweb"
     BOLT11_HRP = SEGWIT_HRP
     GENESIS = "12a765e31ffd4059bada1e25190f6e98c99d9714d334efa41a195a7e7e04bfe2"
@@ -177,7 +177,7 @@ class BitcoinMainnet(AbstractNet):
         'mweb':        0x03a3fdc2,  # mpub
     }
     XPUB_HEADERS_INV = inv_dict(XPUB_HEADERS)
-    BIP44_COIN_TYPE = 2
+    BIP44_COIN_TYPE = 192
     LN_REALM_BYTE = 0
     LN_DNS_SEEDS = [
         'ltc.nodes.lightning.directory.',
