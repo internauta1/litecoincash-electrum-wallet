@@ -1454,39 +1454,67 @@ class Interface(Logger):
         return raw
 
     async def broadcast_transaction(self, tx: 'Transaction', *, timeout=None) -> None:
-        """caller should handle TxBroadcastError and RequestTimedOut"""
+        """Broadcast a standard LCC transaction via ElectrumX."""
         txid_calc = tx.txid()
         assert txid_calc is not None
+
         rawtx = tx.serialize()
         assert is_hex_str(rawtx)
+
         if timeout is None:
-            timeout = self.network.get_network_timeout_seconds(NetworkTimeout.Urgent)
-        if any(DummyAddress.is_dummy_address(txout.address) for txout in tx.outputs()):
-            raise DummyAddressUsedInTxException("tried to broadcast tx with dummy address!")
+            timeout = self.network.get_network_timeout_seconds(
+                NetworkTimeout.Urgent
+            )
+
+        if any(
+            DummyAddress.is_dummy_address(txout.address)
+            for txout in tx.outputs()
+        ):
+            raise DummyAddressUsedInTxException(
+                "tried to broadcast tx with dummy address!"
+            )
+
         try:
-            stub = mwebd.stub_async()
-            resp = await stub.Broadcast(BroadcastRequest(raw_tx=bfh(rawtx)))
-            tx._cached_txid = resp.txid
-            out = txid_calc = resp.txid
-        except (RequestTimedOut, asyncio.CancelledError, asyncio.TimeoutError):
-            raise  # pass-through
+            out = await self.session.send_request(
+                'blockchain.transaction.broadcast',
+                [rawtx],
+                timeout=timeout,
+            )
+
+        except (
+            RequestTimedOut,
+            asyncio.CancelledError,
+            asyncio.TimeoutError,
+        ):
+            raise
+
         except aiorpcx.jsonrpc.CodeMessageError as e:
-            self.logger.info(f"broadcast_transaction error [DO NOT TRUST THIS MESSAGE]: {error_text_str_to_safe_str(repr(e))}. tx={str(tx)}")
-            raise TxBroadcastServerReturnedError(sanitize_tx_broadcast_response(e.message)) from e
-        except grpc.aio._call.AioRpcError as e:
-            self.logger.info(f"broadcast_transaction error [DO NOT TRUST THIS MESSAGE]: {error_text_str_to_safe_str(repr(e))}. tx={str(tx)}")
-            raise TxBroadcastServerReturnedError(e.details()) from e
-        except BaseException as e:  # intentional BaseException for sanity!
-            self.logger.info(f"broadcast_transaction error2 [DO NOT TRUST THIS MESSAGE]: {error_text_str_to_safe_str(repr(e))}. tx={str(tx)}")
-            send_exception_to_crash_reporter(e)
+            self.logger.info(
+                "LCC ElectrumX rejected transaction: "
+                + error_text_str_to_safe_str(repr(e))
+            )
+            raise TxBroadcastServerReturnedError(
+                sanitize_tx_broadcast_response(e.message)
+            ) from e
+
+        except Exception as e:
+            self.logger.info(
+                "LCC broadcast failed: "
+                + error_text_str_to_safe_str(repr(e))
+            )
             raise TxBroadcastUnknownError() from e
-        if out != txid_calc:
-            self.logger.info(f"unexpected txid for broadcast_transaction [DO NOT TRUST THIS MESSAGE]: "
-                             f"{error_text_str_to_safe_str(out)} != {txid_calc}. tx={str(tx)}")
-            raise TxBroadcastHashMismatch(_("Server returned unexpected transaction ID."))
-        # broadcast succeeded.
-        # We now cache the rawtx, for *this interface only*. The tx likely touches some ismine addresses, affecting
-        # the status of a scripthash we are subscribed to. Caching here will save a future get_transaction RPC.
+
+        if (
+            not isinstance(out, str)
+            or out.lower() != txid_calc.lower()
+        ):
+            self.logger.info(
+                "LCC broadcast returned unexpected txid"
+            )
+            raise TxBroadcastHashMismatch(
+                _("Server returned unexpected transaction ID.")
+            )
+
         self._rawtx_cache[txid_calc] = bytes.fromhex(rawtx)
 
     async def broadcast_txpackage(self, txs: Sequence['Transaction']) -> bool:
