@@ -30,6 +30,7 @@ from pathlib import Path
 from . import util
 from .bitcoin import hash_encode
 from .crypto import sha256d
+from .lcc_header_rules import classify_header
 from . import constants
 from .util import bfh, with_lock
 from .logging import Logger
@@ -94,18 +95,25 @@ def hash_raw_header(header: bytes) -> str:
 
 
 def pow_hash_header(header: dict) -> str:
-    # Litecoin Cash: the original Scrypt PoW applies only before
-    # the LCC fork. Later consensus rules need separate handling.
-    if header['block_height'] >= 1371112:
-        raise NotImplementedError(
-            "LCC proof-of-work verification after the fork "
-            "is not implemented in this engine"
-        )
-    raw = serialize_header(header)
-    return hashlib.scrypt(
-        raw, salt=raw, n=1024, r=1, p=1, dklen=32
-    )[::-1].hex()
+    """Return LCC PoW hash only for supported algorithms."""
+    height = header['block_height']
 
+    if height < 1371112:
+        raw = serialize_header(header)
+        return hashlib.scrypt(
+            raw, salt=raw, n=1024, r=1, p=1, dklen=32
+        )[::-1].hex()
+
+    pow_type = classify_header(
+        height, header['version'], header['nonce']
+    )
+
+    if pow_type == 'sha256d':
+        return hash_raw_header(serialize_header(header))
+
+    raise NotImplementedError(
+        f"LCC {pow_type} proof verification is not implemented"
+    )
 
 # block hash -> chain work; up to and including that block
 _CHAINWORK_CACHE = {
