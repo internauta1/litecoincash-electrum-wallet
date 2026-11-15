@@ -30,7 +30,7 @@ from pathlib import Path
 from . import util
 from .bitcoin import hash_encode
 from .crypto import sha256d
-from .lcc_header_rules import classify_header
+from .lcc_header_rules import classify_header, LAST_SCRYPT_BLOCK, HIVE_ACTIVATION_HEIGHT
 from . import constants
 from .util import bfh, with_lock
 from .logging import Logger
@@ -402,20 +402,75 @@ class Blockchain(Logger):
             raise InvalidHeader(f"insufficient proof of work: {pow_hash_as_num} vs target {target}")
 
     def verify_chunk(self, index: int, data: bytes) -> None:
+        """Verify LCC headers using their consensus-era difficulty."""
+        if not data or len(data) % HEADER_SIZE:
+            raise InvalidHeader("invalid header chunk length")
+
         num = len(data) // HEADER_SIZE
         start_height = index * CHUNK_SIZE
         prev_hash = self.get_hash(start_height - 1)
-        target = self.get_target(index-1)
+
+        scrypt_target = None
+        history = {}
+
+        # DGW needs the previous 24 SHA256d headers.
+        # When the chunk begins after the fork, load them
+        # from the already verified local header store.
+        if (
+            not constants.net.TESTNET
+            and start_height >= LAST_SCRYPT_BLOCK + 25
+        ):
+            for h in range(start_height - 24, start_height):
+                previous = self.read_header(h)
+                if previous is None:
+                    raise MissingHeader()
+                history[h] = previous
+
         for i in range(num):
             height = start_height + i
+            raw_header = data[
+                i * HEADER_SIZE:(i + 1) * HEADER_SIZE
+            ]
+            header = deserialize_header(raw_header, height)
+
+            if constants.net.TESTNET:
+                target = self.get_target(index - 1)
+
+            elif height <= LAST_SCRYPT_BLOCK:
+                if scrypt_target is None:
+                    scrypt_target = self.get_target(index - 1)
+                target = scrypt_target
+
+            elif height < HIVE_ACTIVATION_HEIGHT:
+                try:
+                    bits = self.dgw_next_bits_early(
+                        height, history
+                    )
+                except KeyError as e:
+                    raise MissingHeader() from e
+
+                target = self.bits_to_target(bits)
+
+            else:
+                raise NotImplementedError(
+                    "LCC header verification after Hive "
+                    "activation is not implemented"
+                )
+
             try:
                 expected_header_hash = self.get_hash(height)
             except MissingHeader:
                 expected_header_hash = None
-            raw_header = data[i*HEADER_SIZE : (i+1)*HEADER_SIZE]
-            header = deserialize_header(raw_header, index*CHUNK_SIZE + i)
-            self.verify_header(header, prev_hash, target, expected_header_hash)
+
+            self.verify_header(
+                header,
+                prev_hash,
+                target,
+                expected_header_hash,
+            )
+
             prev_hash = hash_header(header)
+            history[height] = header
 
     @with_lock
     def path(self) -> Path:
