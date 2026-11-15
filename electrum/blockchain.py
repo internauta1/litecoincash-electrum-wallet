@@ -829,13 +829,53 @@ class Blockchain(Logger):
         if prev_hash != header.get('prev_block_hash'):
             return False
         try:
-            target = self.get_target(height // CHUNK_SIZE - 1)
-        except MissingHeader:
+            if constants.net.TESTNET:
+                # Preserve existing testnet behavior.
+                target = self.get_target(
+                    height // CHUNK_SIZE - 1
+                )
+
+            elif height <= LAST_SCRYPT_BLOCK:
+                # Original Litecoin difficulty rules.
+                target = self.get_target(
+                    height // CHUNK_SIZE - 1
+                )
+
+            elif height < HIVE_ACTIVATION_HEIGHT:
+                # Early LCC SHA256d uses per-block DGW.
+                history = {}
+
+                needs_history = (
+                    height - 1 - LAST_SCRYPT_BLOCK >= 24
+                )
+
+                if needs_history:
+                    for h in range(height - 24, height):
+                        previous = self.read_header(h)
+                        if previous is None:
+                            return False
+                        history[h] = previous
+
+                bits = self.dgw_next_bits_early(
+                    height, history
+                )
+
+                target = self.bits_to_target(bits)
+
+            else:
+                # Hive and later consensus rules are
+                # not fully verified yet. Fail closed.
+                return False
+
+            self.verify_header(
+                header,
+                prev_hash,
+                target,
+            )
+
+        except Exception:
             return False
-        try:
-            self.verify_header(header, prev_hash, target)
-        except BaseException as e:
-            return False
+
         return True
 
     def connect_chunk(self, idx: int, data: bytes) -> bool:
