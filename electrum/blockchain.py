@@ -21,6 +21,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 import os
+import hashlib
 import threading
 import time
 from typing import Optional, Dict, Mapping, Sequence, TYPE_CHECKING
@@ -32,7 +33,6 @@ from .crypto import sha256d
 from . import constants
 from .util import bfh, with_lock
 from .logging import Logger
-from .mwebd import scrypt
 
 if TYPE_CHECKING:
     from .simple_config import SimpleConfig
@@ -94,7 +94,17 @@ def hash_raw_header(header: bytes) -> str:
 
 
 def pow_hash_header(header: dict) -> str:
-    return scrypt(serialize_header(header))[::-1].hex()
+    # Litecoin Cash: the original Scrypt PoW applies only before
+    # the LCC fork. Later consensus rules need separate handling.
+    if header['block_height'] >= 1371112:
+        raise NotImplementedError(
+            "LCC proof-of-work verification after the fork "
+            "is not implemented in this engine"
+        )
+    raw = serialize_header(header)
+    return hashlib.scrypt(
+        raw, salt=raw, n=1024, r=1, p=1, dklen=32
+    )[::-1].hex()
 
 
 # block hash -> chain work; up to and including that block

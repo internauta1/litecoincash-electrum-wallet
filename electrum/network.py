@@ -526,7 +526,18 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
             util.trigger_callback('servers', self.get_servers())
 
         async def get_relay_fee():
-            self.relay_fee = await interface.get_relay_fee()
+            # LCC: some ElectrumX servers do not provide relay fee info.
+            # This optional query must not disconnect the wallet.
+            self.relay_fee = None
+            try:
+                self.relay_fee = await interface.get_relay_fee()
+            except aiorpcx.jsonrpc.RPCError as e:
+                if e.code not in (-32601, -32603):
+                    raise
+                self.logger.warning(
+                    f"relay fee unavailable from {interface.server} "
+                    f"(RPC {e.code}); keeping relay_fee unknown"
+                )
 
         async with OldTaskGroup() as group:
             await group.spawn(get_banner)
