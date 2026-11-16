@@ -816,7 +816,7 @@ def chunks(items, size: int):
 def format_satoshis_plain(
         x: Union[int, float, Decimal, str],  # amount in satoshis,
         *,
-        decimal_point: int = 8,  # how much to shift decimal point to left (default: sat->BTC)
+        decimal_point: int = 7,  # LCC uses 10,000,000 base units per coin
         is_max_allowed: bool = True,
 ) -> str:
     """Display a satoshi amount scaled.  Always uses a '.' as a decimal
@@ -848,7 +848,7 @@ def format_satoshis(
         x: Union[int, float, Decimal, str, None],  # amount in satoshis
         *,
         num_zeros: int = 0,
-        decimal_point: int = 8,  # how much to shift decimal point to left (default: sat->BTC)
+        decimal_point: int = 7,  # LCC uses 10,000,000 base units per coin
         precision: int = 0,  # extra digits after satoshi precision
         is_diff: bool = False,  # if True, enforce a leading sign (+/-)
         whitespaces: bool = False,  # if True, add whitespaces, to align numbers in a column
@@ -903,7 +903,7 @@ def format_satoshis(
 
 FEERATE_PRECISION = 1  # num fractional decimal places for sat/byte fee rates
 _feerate_quanta = Decimal(10) ** (-FEERATE_PRECISION)
-UI_UNIT_NAME_FEERATE_SAT_PER_VBYTE = "sat/vbyte"
+UI_UNIT_NAME_FEERATE_SAT_PER_VBYTE = "unidades/vB"
 UI_UNIT_NAME_FEERATE_SAT_PER_VB = "sat/vB"
 UI_UNIT_NAME_TXSIZE_VBYTES = "vbytes"
 UI_UNIT_NAME_MEMPOOL_MB = "vMB"

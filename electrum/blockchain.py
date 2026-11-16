@@ -30,7 +30,7 @@ from pathlib import Path
 from . import util
 from .bitcoin import hash_encode
 from .crypto import sha256d
-from .lcc_header_rules import classify_header, LAST_SCRYPT_BLOCK, HIVE_ACTIVATION_HEIGHT
+from .lcc_header_rules import classify_header, LAST_SCRYPT_BLOCK, HIVE_ACTIVATION_HEIGHT, FIRST_HIVE_BLOCK_HEIGHT
 from . import constants
 from .util import bfh, with_lock
 from .logging import Logger
@@ -441,7 +441,10 @@ class Blockchain(Logger):
                     scrypt_target = self.get_target(index - 1)
                 target = scrypt_target
 
-            elif height < HIVE_ACTIVATION_HEIGHT:
+            elif height < FIRST_HIVE_BLOCK_HEIGHT:
+                if height >= HIVE_ACTIVATION_HEIGHT and classify_header(
+                        height, header["version"], header["nonce"]) != "sha256d":
+                    raise InvalidHeader("Hive proof not supported")
                 try:
                     bits = self.dgw_next_bits_early(
                         height, history
@@ -716,6 +719,79 @@ class Blockchain(Logger):
 
         return cls.target_to_bits(target)
 
+
+    @classmethod
+    def dgw_next_bits_pre_hive11(cls, height: int, headers: dict) -> int:
+        """LCC SHA256d DGW with Hive blocks, before Hive 1.1.
+
+        Historical consensus rule:
+        - Skip Hive blocks in the 24-block PoW average.
+        - Keep the immediate previous block for the tip timestamp,
+          even if that previous block is Hive.
+
+        Does not validate Hive proofs or support Hive 1.1.
+        """
+        from .lcc_header_rules import (
+            LAST_SCRYPT_BLOCK,
+            classify_header,
+        )
+
+        window = 24
+        spacing = 150
+        pow_limit = int("00000000" + "ff" * 28, 16)
+
+        if height <= LAST_SCRYPT_BLOCK:
+            raise ValueError("DGW not active at this height")
+
+        if height - 1 - LAST_SCRYPT_BLOCK < window:
+            return cls.target_to_bits(pow_limit)
+
+        tip = height - 1
+        cursor = tip
+        average = 0
+
+        def is_hive(block_height):
+            header = headers[block_height]
+            return classify_header(
+                block_height,
+                header["version"],
+                header["nonce"],
+            ) == "hive"
+
+        for n in range(1, window + 1):
+            while is_hive(cursor):
+                cursor -= 1
+
+            target = cls.bits_to_target(
+                headers[cursor]["bits"]
+            )
+
+            if n == 1:
+                average = target
+            else:
+                average = (
+                    average * n + target
+                ) // (n + 1)
+
+            if n != window:
+                cursor -= 1
+
+        actual = (
+            headers[tip]["timestamp"]
+            - headers[cursor]["timestamp"]
+        )
+
+        expected = window * spacing
+        actual = max(expected // 3, actual)
+        actual = min(expected * 3, actual)
+
+        target = min(
+            average * actual // expected,
+            pow_limit,
+        )
+
+        return cls.target_to_bits(target)
+
     def get_target(self, index: int) -> int:
         # compute target from chunk x, used in chunk x+1
         if constants.net.TESTNET:
@@ -841,8 +917,11 @@ class Blockchain(Logger):
                     height // CHUNK_SIZE - 1
                 )
 
-            elif height < HIVE_ACTIVATION_HEIGHT:
-                # Early LCC SHA256d uses per-block DGW.
+            elif height < FIRST_HIVE_BLOCK_HEIGHT:
+                # LCC SHA256d before the first actual Hive block.
+                if height >= HIVE_ACTIVATION_HEIGHT and classify_header(
+                        height, header["version"], header["nonce"]) != "sha256d":
+                    return False
                 history = {}
 
                 needs_history = (
@@ -878,14 +957,95 @@ class Blockchain(Logger):
 
         return True
 
+
+    @staticmethod
+    def _lcc_core_hash(height):
+        import subprocess
+
+        result = subprocess.run(
+            ["docker", "exec", "lcc-node",
+             "/opt/litecoincash/bin/litecoincash-cli",
+             "getblockhash", str(height)],
+            capture_output=True, text=True,
+            check=True, timeout=30,
+        )
+        value = result.stdout.strip().lower()
+        if len(value) != 64 or any(
+            c not in "0123456789abcdef" for c in value
+        ):
+            raise InvalidHeader("Core returned invalid hash")
+        return value
+
+    def _lcc_verify_core_chunk(self, idx, data):
+        import hashlib
+
+        if not data or len(data) % HEADER_SIZE:
+            raise InvalidHeader("Invalid chunk length")
+
+        start = idx * CHUNK_SIZE
+        end = start + len(data) // HEADER_SIZE - 1
+        old_tip = self.height()
+
+        if end < FIRST_HIVE_BLOCK_HEIGHT:
+            raise InvalidHeader("Core mode before Hive forbidden")
+        if start > old_tip + 1:
+            raise MissingHeader()
+
+        previous = self.get_hash(start - 1)
+        if previous != self._lcc_core_hash(start - 1):
+            raise InvalidHeader("Core start anchor mismatch")
+
+        previous_wire = bytes.fromhex(previous)[::-1]
+
+        for offset in range(0, len(data), HEADER_SIZE):
+            height = start + offset // HEADER_SIZE
+            raw = data[offset:offset + HEADER_SIZE]
+
+            if raw[4:36] != previous_wire:
+                raise InvalidHeader(
+                    f"Broken header link at {height}"
+                )
+
+            previous_wire = hashlib.sha256(
+                hashlib.sha256(raw).digest()
+            ).digest()
+
+            if height <= old_tip:
+                actual = previous_wire[::-1].hex()
+                if self.get_hash(height) != actual:
+                    raise InvalidHeader(
+                        f"Existing header mismatch at {height}"
+                    )
+
+        if previous_wire[::-1].hex() != self._lcc_core_hash(end):
+            raise InvalidHeader(
+                f"Core end anchor mismatch at {end}"
+            )
+
+        self.logger.info(
+            f"LCC CORE-ASSISTED NOT SPV: "
+            f"verified chunk {idx}, heights {start}-{end}"
+        )
+
     def connect_chunk(self, idx: int, data: bytes) -> bool:
         assert idx >= 0, idx
         try:
-            self.verify_chunk(idx, data)
+            try:
+                self.verify_chunk(idx, data)
+            except NotImplementedError:
+                if os.environ.get(
+                    "ELECTRUM_LCC_TRUST_LOCAL_CORE"
+                ) != "1":
+                    raise
+                self._lcc_verify_core_chunk(idx, data)
+
             self.save_chunk(idx, data)
             return True
-        except BaseException as e:
-            self.logger.info(f'verify_chunk idx {idx} failed: {repr(e)}')
+
+        except Exception as e:
+            self.logger.error(
+                f"LCC chunk {idx} rejected: {e!r}"
+            )
             return False
 
     def get_checkpoints(self):

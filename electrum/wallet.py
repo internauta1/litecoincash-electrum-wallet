@@ -2281,12 +2281,17 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                 fee = fee_estimator(tx.estimated_size())
                 distribute_amount(to_distribute - fee)
 
+            # LCC: MAX uses the existing standard on-chain fee estimator.
+            # MWEB inputs and outputs must never enter this path.
+            if any(getattr(txin, "mweb_output_id", None) for txin in tx_inputs):
+                raise ValueError("MWEB inputs are unsupported by LCC")
+            if any(is_mweb_address(txout.address) for txout in outputs):
+                raise ValueError("MWEB outputs are unsupported by LCC")
+
             tx = PartialTransaction.from_io(list(tx_inputs), list(outputs))
-            tx, fee = mwebd.create(tx, self.keystore, fee_estimator)
-            if tx.inputs(): fee += fee_estimator(tx.estimated_size())
+            fee = fee_estimator(tx.estimated_size())
             distribute_amount(to_distribute - fee)
             tx = PartialTransaction.from_io(list(tx_inputs), list(outputs))
-            tx, _ = mwebd.create(tx, self.keystore, fee_estimator)
 
         assert tx.output_value() > 0, "any bitcoin tx must have at least 1 output by consensus"
         if tx._original_tx: tx._fee_estimator = DeepCopyableFunc(fee_estimator)

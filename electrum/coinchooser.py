@@ -354,18 +354,23 @@ class CoinChooserBase(Logger):
             return tx.input_value() >= tx.output_value() + fee
 
         def tx_from_buckets(buckets):
+            # LCC: use the original Electrum on-chain coin chooser.
+            # MWEB inputs and outputs are not supported.
             tx, change = _tx_from_buckets(buckets)
-            base_change, tx._outputs = partition(lambda x: any(x is y for y in change)
-                                       and not is_mweb_address(x.address), tx.outputs())
-            _, fee_increase = mwebd.create(tx, keystore, fee_estimator_vb)
-            sum_change = sum([x.value for x in change])
-            for x in change: x.value -= ceil(x.value / sum_change * fee_increase)
-            tx._outputs = [x for x in tx.outputs() if x.value > 0]
-            tx2, _ = mwebd.create(tx, keystore, fee_estimator_vb)
-            change_added_back = [x for x in base_change if x.value >= dust_threshold]
-            tx.add_outputs(change_added_back)
-            if tx2 is not tx: tx2.add_outputs(change_added_back)
-            return tx2, [x for x in change if any(x is y for y in tx.outputs())]
+
+            if any(
+                getattr(txin, "mweb_output_id", None)
+                for txin in tx.inputs()
+            ):
+                raise ValueError("LCC: MWEB input not supported")
+
+            if any(
+                is_mweb_address(txout.address)
+                for txout in tx.outputs()
+            ):
+                raise ValueError("LCC: MWEB output not supported")
+
+            return tx, change
 
         def _tx_from_buckets(buckets):
             return self._construct_tx_from_selected_buckets(

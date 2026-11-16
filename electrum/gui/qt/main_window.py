@@ -41,6 +41,9 @@ from grpc._channel import _InactiveRpcError
 
 from PyQt6.QtGui import QPixmap, QKeySequence, QIcon, QCursor, QFont, QFontMetrics, QAction, QShortcut
 from PyQt6.QtCore import Qt, QRect, QStringListModel, QSize, pyqtSignal, QTimer
+from PyQt6.QtCore import QProcess, QProcessEnvironment
+from PyQt6.QtGui import QTextCursor
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPlainTextEdit, QDialogButtonBox, QInputDialog
 from PyQt6.QtWidgets import (QMessageBox, QTabWidget, QMenuBar, QFileDialog, QCheckBox, QLabel,
                              QVBoxLayout, QGridLayout, QLineEdit, QHBoxLayout, QPushButton, QScrollArea, QTextEdit,
                              QMainWindow, QInputDialog, QWidget, QSizePolicy, QStatusBar, QToolTip,
@@ -77,8 +80,6 @@ from electrum.lntransport import extract_nodeid, ConnStringFormatError
 from electrum.bolt11 import decode_bolt11_invoice, BOLT11Addr
 from electrum.submarine_swaps import SwapServerTransport, NostrTransport
 from electrum.fee_policy import FeePolicy
-import electrum.mwebd as mwebd
-from electrum.mwebd_pb2 import StatusRequest
 
 from electrum.gui.common_qt.util import TaskThread, QtEventListener, qt_event_listener
 
@@ -235,7 +236,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
                 tabs.addTab(tab, icon, description.replace("&", ""))
 
         add_optional_tab(tabs, self.addresses_tab, read_QIcon("tab_addresses.png"), _("&Addresses"))
-        add_optional_tab(tabs, self.channels_tab, read_QIcon("lightning.png"), _("Channels"))
+        # LCC: Channels UI disabled until Lightning support is validated.
         add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"), _("Co&ins"))
         add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"), _("Con&tacts"))
         add_optional_tab(tabs, self.console_tab, read_QIcon("tab_console.png"), _("Con&sole"))
@@ -303,7 +304,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
 
         # If the option hasn't been set yet
         if not config.cv.AUTOMATIC_CENTRALIZED_UPDATE_CHECKS.is_set():
-            choice = self.question(title="Electrum-LTC - " + _("Enable update check"),
+            choice = self.question(title="Electrum-LCC - " + _("Enable update check"),
                                    msg=_("For security reasons we advise that you always use the latest version of Electrum.") + " " +
                                        _("Would you like to be notified when there is a newer version of Electrum available?"))
             config.AUTOMATIC_CENTRALIZED_UPDATE_CHECKS = bool(choice)
@@ -633,7 +634,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
 
     @classmethod
     def get_app_name_and_version_str(cls) -> str:
-        name = "Electrum-LTC"
+        name = "Electrum-LCC"
         if constants.net.TESTNET:
             name += " " + constants.net.NET_NAME.capitalize()
         return f"{name} {ELECTRUM_VERSION}"
@@ -776,6 +777,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             path = os.path.join(wallet_folder, filename)
         self.gui_object.start_new_window(path, uri=None, force_wizard=True)
 
+
+
     def init_menubar(self):
         menubar = QMenuBar()
 
@@ -817,7 +820,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.view_menu = menubar.addMenu(_("&View"))
         add_toggle_action(self.addresses_tab)
         add_toggle_action(self.utxo_tab)
-        add_toggle_action(self.channels_tab)
+        # LCC: Channels toggle disabled.
         add_toggle_action(self.contacts_tab)
         add_toggle_action(self.console_tab)
         add_toggle_action(self.notes_tab)
@@ -881,7 +884,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             self.show_error(_('No donation address for this server'))
 
     def show_about(self):
-        QMessageBox.about(self, "Electrum-LTC",
+        QMessageBox.about(self, "Electrum-LCC",
                           (_("Version")+" %s" % ELECTRUM_VERSION + "\n\n" +
                            _("Electrum's focus is speed, with low resource usage and simplifying Bitcoin.") + " " +
                            _("You do not need to perform regular backups, because your wallet can be "
@@ -921,7 +924,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             _("Before reporting a bug, upgrade to the most recent version of Electrum (latest release or git HEAD), and include the version number in your report."),
             _("Try to explain not only what the bug is, but how it occurs.")
          ])
-        self.show_message(msg, title="Electrum-LTC - " + _("Reporting Bugs"), rich_text=True)
+        self.show_message(msg, title="Electrum-LCC - " + _("Reporting Bugs"), rich_text=True)
 
     def notify_transactions(self):
         if self.tx_notification_queue.qsize() == 0:
@@ -946,14 +949,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
 
     def notify(self, message):
         if self.tray:
-            self.tray.showMessage("Electrum-LTC", message, read_QIcon("electrum_dark_icon"), 20000)
+            self.tray.showMessage("Electrum-LCC", message, read_QIcon("electrum_dark_icon"), 20000)
 
     def timer_actions(self):
         # refresh invoices and requests because they show ETA
         self.receive_tab.request_list.refresh_all()
         self.send_tab.invoice_list.refresh_all()
         try:
-            mwebd_status = mwebd.stub().Status(StatusRequest())
+            mwebd_status = None  # LCC does not use MWEB
         except Exception:
             mwebd_status = None
         mwebd_status_changed = mwebd_status != self.mwebd_status
@@ -1076,21 +1079,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             elif server_lag > 1:
                 network_text = _("Server is lagging ({} blocks)").format(server_lag)
                 icon = read_QIcon("status_lagging%s.png"%fork_str)
-            elif self.mwebd_status is None:
-                network_text = _("MWEB is disconnected")
-                icon = read_QIcon("status_disconnected.png")
-            elif self.mwebd_status.block_header_height < server_height:
-                network_text = ("{} ({}%)".format(_("Synchronizing MWEB..."),
-                                round(self.mwebd_status.block_header_height * 100 / server_height)))
-                icon = read_QIcon("status_waiting.png")
-            elif self.mwebd_status.mweb_header_height < server_height:
-                network_text = ("{} ({}%)".format(_("Synchronizing MWEB..."),
-                                round(self.mwebd_status.mweb_header_height * 100 / server_height)))
-                icon = read_QIcon("status_waiting.png")
-            elif self.mwebd_status.mweb_utxos_height < server_height:
-                network_text = _("Synchronizing MWEB...")
-                icon = read_QIcon("status_waiting.png")
             else:
+                # LCC uses ElectrumX; Litecoin MWEB is not required.
                 network_text = _("Connected")
                 p_bal = self.wallet.get_balances_for_piechart()
                 self.balance_label.update_list(
@@ -1611,18 +1601,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.utxo_list.selectionModel().clearSelection()
 
     def coinswap(self, utxo: PartialTxInput):
-        if not self.wallet.keystore.may_have_password(): return
-        txout = PartialTxOutput(scriptpubkey=utxo.scriptpubkey, value=utxo.value_sats())
-        make_tx = lambda _: PartialTransaction.from_io([utxo], [txout])
-        conf_dlg = ConfirmTxDialog(window=self, make_tx=make_tx, output_value='!', is_sweep=False)
-        cancelled, is_send, password, _ = conf_dlg.run()
-        if cancelled or not is_send: return
-        self.wallet.add_input_info(utxo)
-        try:
-            mwebd.coinswap(utxo, self.wallet.keystore, password)
-            self.show_message('Request sent')
-        except _InactiveRpcError as e:
-            self.show_error(e.details().capitalize())
+        self.show_error(
+            _("Coinswap / MWEB is not supported by Litecoin Cash.")
+        )
 
     def create_list_tab(self, l):
         w = QWidget()

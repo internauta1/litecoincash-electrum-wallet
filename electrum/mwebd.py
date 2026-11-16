@@ -35,7 +35,9 @@ def libmwebd():
         except Exception as e:
             ex.append(e)
     _logger.error(f"failed to load mwebd. exceptions: {ex!r}")
-    os._exit(1)
+    raise RuntimeError(
+        "MWEB unavailable in Electrum-LCC"
+    ) from ex[-1]
 
 class strgo(Structure):
     _fields_ = [('p', c_char_p), ('n', c_int)]

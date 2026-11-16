@@ -1194,6 +1194,107 @@ class Interface(Logger):
             if self.blockchain.height() >= height and self.blockchain.check_header(header):
                 # another interface amended the blockchain
                 return False
+            from .lcc_header_rules import (
+                HIVE_ACTIVATION_HEIGHT,
+                FIRST_HIVE_BLOCK_HEIGHT,
+            )
+
+            local_height = self.blockchain.height()
+
+            import os
+            if (
+                not constants.net.TESTNET
+                and os.environ.get(
+                    "ELECTRUM_LCC_TRUST_LOCAL_CORE"
+                ) == "1"
+            ):
+                import subprocess
+
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["docker", "exec", "lcc-node",
+                     "/opt/litecoincash/bin/litecoincash-cli",
+                     "getblockcount"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=30,
+                )
+
+                limit = min(height, int(result.stdout.strip()))
+                ceiling = os.environ.get(
+                    "ELECTRUM_LCC_CORE_MAX_HEIGHT"
+                )
+                if ceiling:
+                    limit = min(limit, int(ceiling))
+
+                if limit <= local_height:
+                    return False
+
+                next_height = local_height + 1
+
+                while next_height <= limit:
+                    advanced = await self._fast_forward_chain(
+                        height=next_height,
+                        tip=limit,
+                    )
+                    if advanced <= 0:
+                        self.logger.error(
+                            f"LCC sync stopped at "
+                            f"{self.blockchain.height()}"
+                        )
+                        return False
+
+                    next_height += advanced
+                    self.logger.info(
+                        f"LCC CORE-ASSISTED NOT SPV: "
+                        f"height {self.blockchain.height()} "
+                        f"of {limit}"
+                    )
+                    util.trigger_callback("blockchain_updated")
+                    self._blockchain_updated.set()
+                    self._blockchain_updated.clear()
+
+                return self.blockchain.height() > local_height
+
+
+            if (
+                not constants.net.TESTNET
+                and height >= FIRST_HIVE_BLOCK_HEIGHT
+                and HIVE_ACTIVATION_HEIGHT - 1 <= local_height
+                < FIRST_HIVE_BLOCK_HEIGHT - 1
+            ):
+                count = await self._fast_forward_chain(
+                    height=local_height + 1,
+                    tip=FIRST_HIVE_BLOCK_HEIGHT - 1,
+                )
+                if count:
+                    self.logger.info(
+                        f"LCC: verified {count} SHA256d headers "
+                        f"up to {self.blockchain.height()}"
+                    )
+                    self._blockchain_updated.set()
+                    self._blockchain_updated.clear()
+                    return True
+
+                self.logger.warning(
+                    "LCC: could not verify pre-Hive header prefix"
+                )
+                return False
+
+            if (
+                not constants.net.TESTNET
+                and height >= FIRST_HIVE_BLOCK_HEIGHT
+                and local_height == FIRST_HIVE_BLOCK_HEIGHT - 1
+            ):
+                if not getattr(self, "_lcc_hive_paused", False):
+                    self.logger.warning(
+                        "LCC: stopped at first Hive block 1565612; "
+                        "Hive proof validation is not implemented"
+                    )
+                    self._lcc_hive_paused = True
+                return False
+
             await self.sync_until(height)
             return True
 

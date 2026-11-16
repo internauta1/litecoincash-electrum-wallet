@@ -110,6 +110,8 @@ class Sighash(IntEnum):
     ALL = 1
     NONE = 2
     SINGLE = 3
+    FORKID = 0x40  # Litecoin Cash replay protection
+    ALL_FORKID = 0x41
     ANYONECANPAY = 0x80
 
     @classmethod
@@ -120,6 +122,12 @@ class Sighash(IntEnum):
         }
         if is_taproot:
             valid_flags.add(0x00)
+        else:
+            # LCC: valid legacy/SegWit v0 ForkID combinations.
+            valid_flags.update((
+                0x41, 0x42, 0x43,
+                0xC1, 0xC2, 0xC3,
+            ))
         return sighash in valid_flags
 
     @classmethod
@@ -1105,7 +1113,7 @@ class Transaction:
             if sighash is None:
                 sighash = txin.sighash
             if sighash is None:
-                sighash = Sighash.DEFAULT if txin.is_taproot() else Sighash.ALL
+                sighash = Sighash.DEFAULT if txin.is_taproot() else Sighash.ALL_FORKID
         assert sighash is not None
         if (strict or txin.is_taproot()) and not Sighash.is_valid(sighash, is_taproot=txin.is_taproot()):
             # Undefined sighashes for legacy and segwit are non-standard but consensus-valid.
@@ -2635,6 +2643,19 @@ class PartialTransaction(Transaction):
     ) -> bytes:
         txin = self.inputs()[txin_index]
         txin.validate_data(for_signing=True)
+        if not txin.is_taproot():
+            flag = (
+                txin.sighash
+                if txin.sighash is not None
+                else Sighash.ALL_FORKID
+            )
+            if (
+                not Sighash.is_valid(flag)
+                or not (flag & Sighash.FORKID)
+            ):
+                raise ValueError(
+                    "LCC: signing requires SIGHASH_FORKID"
+                )
         pre_hash = self.serialize_preimage(txin_index, sighash_cache=sighash_cache)
         if txin.is_taproot():
             # note: privkey_bytes is the internal key
@@ -2648,7 +2669,7 @@ class PartialTransaction(Transaction):
             privkey = ecc.ECPrivkey(privkey_bytes)
             msg_hash = sha256d(pre_hash)
             sig = privkey.ecdsa_sign(msg_hash, sigencode=ecc.ecdsa_der_sig_from_r_and_s)
-            sighash = txin.sighash if txin.sighash is not None else Sighash.ALL
+            sighash = txin.sighash if txin.sighash is not None else Sighash.ALL_FORKID
         return sig + Sighash.to_sigbytes(sighash)
 
     def is_complete(self) -> bool:

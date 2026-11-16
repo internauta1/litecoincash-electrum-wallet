@@ -293,11 +293,83 @@ class TxEditor(WindowModalDialog, SubmarineSwapMixin, Logger):
         fee_hbox.addWidget(self.feerounding_icon)
         fee_hbox.addStretch()
 
+        # LCC: user-friendly presets using the existing FeePolicy.
+        from PyQt6.QtWidgets import QCheckBox, QComboBox
+
+        self._lcc_setting_fee_preset = False
+        self.lcc_fee_preset = QComboBox(self)
+        self.lcc_fee_preset.addItem("Economica (25 blocos)", 25)
+        self.lcc_fee_preset.addItem("Normal (5 blocos)", 5)
+        self.lcc_fee_preset.addItem("Rapida (2 blocos)", 2)
+        self.lcc_fee_preset.addItem("Personalizada", None)
+        self.lcc_fee_preset.setToolTip(
+            "Alvo estimado de confirmacao, nao garantido."
+        )
+
+        target = (
+            self.fee_policy.value
+            if self.fee_policy.method == FeeMethod.ETA
+            else None
+        )
+        index = self.lcc_fee_preset.findData(target)
+        self.lcc_fee_preset.setCurrentIndex(
+            index if index >= 0 else 3
+        )
+
+        self.lcc_fee_advanced = QCheckBox("Avancado", self)
+
+        def show_lcc_advanced(enabled):
+            for widget in (
+                self.fee_target,
+                self.fee_slider,
+                self.fee_combo,
+            ):
+                widget.setVisible(enabled)
+
+        self.lcc_fee_advanced.toggled.connect(
+            show_lcc_advanced
+        )
+
+        def apply_lcc_fee_preset(index):
+            target = self.lcc_fee_preset.itemData(index)
+
+            if target is None:
+                self.lcc_fee_advanced.setChecked(True)
+                return
+
+            self._lcc_setting_fee_preset = True
+            try:
+                self.fee_policy.set_method(FeeMethod.ETA)
+                self.fee_policy.value = int(target)
+
+                previous = self.fee_combo.blockSignals(True)
+                try:
+                    self.fee_combo.setCurrentIndex(
+                        FeeMethod.slider_index_of_method(
+                            FeeMethod.ETA
+                        )
+                    )
+                finally:
+                    self.fee_combo.blockSignals(previous)
+
+                self.fee_slider.update(is_initialized=True)
+                self.update_fee_target()
+            finally:
+                self._lcc_setting_fee_preset = False
+
+        self.lcc_fee_preset.currentIndexChanged.connect(
+            apply_lcc_fee_preset
+        )
+
         self.fee_target_hbox = fee_target_hbox = QHBoxLayout()
+        fee_target_hbox.addWidget(self.lcc_fee_preset)
+        fee_target_hbox.addWidget(self.lcc_fee_advanced)
         fee_target_hbox.addWidget(self.fee_target)
         fee_target_hbox.addWidget(self.fee_slider)
         fee_target_hbox.addWidget(self.fee_combo)
         fee_target_hbox.addStretch()
+
+        show_lcc_advanced(False)
 
         # set feerate_label to same size as feerate_e
         self.feerate_label.setFixedSize(self.feerate_e.sizeHint())
@@ -340,6 +412,29 @@ class TxEditor(WindowModalDialog, SubmarineSwapMixin, Logger):
         self.needs_update = True
 
     def fee_slider_callback(self, fee_rate):
+        # Keep LCC presets in sync with manual slider changes.
+        preset = getattr(self, "lcc_fee_preset", None)
+        if (
+            preset is not None
+            and not getattr(self, "_lcc_setting_fee_preset", False)
+        ):
+            from electrum.fee_policy import FeeMethod
+
+            target = (
+                self.fee_policy.value
+                if self.fee_policy.method == FeeMethod.ETA
+                else None
+            )
+            index = preset.findData(target)
+            if index < 0:
+                index = 3
+
+            previous = preset.blockSignals(True)
+            try:
+                preset.setCurrentIndex(index)
+            finally:
+                preset.blockSignals(previous)
+
         self.fee_slider.activate()
         if fee_rate:
             fee_rate = Decimal(fee_rate)
