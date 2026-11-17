@@ -837,7 +837,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             self.tools_menu.addAction(_("Electrum preferences"), self.settings_dialog)
 
         self.tools_menu.addAction(_("&Network"), self.gui_object.show_network_dialog).setEnabled(bool(self.network))
-        self.tools_menu.addAction(_("&Plugins"), self.gui_object.show_plugins_dialog)
+        # LCC: plugins manager hidden from Tools menu.
         self.tools_menu.addSeparator()
         self.tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         self.tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)

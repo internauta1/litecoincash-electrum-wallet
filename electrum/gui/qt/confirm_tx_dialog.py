@@ -33,6 +33,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QHBoxLayout, QVBoxLayout, QLabel, QGridLayout, QPushButton, QToolButton,
                              QComboBox, QTabWidget, QWidget, QStackedWidget)
 
+from PyQt6.QtWidgets import QComboBox as _LCC_QComboBox
 from electrum.i18n import _
 from electrum.util import (UserCancelled, quantize_feerate, profiler, NotEnoughFunds, NoDynamicFeeEstimates,
                            UserFacingException)
@@ -268,6 +269,29 @@ class TxEditor(WindowModalDialog, SubmarineSwapMixin, Logger):
         self.fee_combo = FeeComboBox(self.fee_slider)
         self.fee_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
+        if self.context == TxEditorContext.PAYMENT:
+            # LCC: three fixed fee-rate presets, in atomic units/vB.
+            self.lcc_fee_combo = _LCC_QComboBox()
+            self.lcc_fee_combo.addItems([
+                "Economy - 1 unit/vB",
+                "Normal - 5 units/vB",
+                "Fast - 15 units/vB",
+            ])
+            self.lcc_fee_combo.setCurrentIndex(1)
+            self.lcc_fee_combo.setToolTip(
+                "Fixed fee rates; confirmation time is not guaranteed."
+            )
+            self.lcc_fee_combo.currentIndexChanged.connect(
+                lambda _index: self.trigger_update()
+            )
+            self.fee_slider.deactivate()
+
+            self.lcc_fee_details = QLabel("Total fee: calculating...")
+            self.lcc_fee_details.setWordWrap(True)
+            self.lcc_fee_details.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+
         def feerounding_onclick():
             text = (self.feerounding_text() + '\n\n' +
                     _('To somewhat protect your privacy, Electrum tries to create change with similar precision to other outputs.') + ' ' +
@@ -364,9 +388,16 @@ class TxEditor(WindowModalDialog, SubmarineSwapMixin, Logger):
         self.fee_target_hbox = fee_target_hbox = QHBoxLayout()
         fee_target_hbox.addWidget(self.lcc_fee_preset)
         fee_target_hbox.addWidget(self.lcc_fee_advanced)
-        fee_target_hbox.addWidget(self.fee_target)
-        fee_target_hbox.addWidget(self.fee_slider)
-        fee_target_hbox.addWidget(self.fee_combo)
+        # LCC: hide legacy presets and advanced controls.
+        # Keep the original objects for compatibility.
+        self.lcc_fee_preset.hide()
+        self.lcc_fee_advanced.hide()
+        if self.context == TxEditorContext.PAYMENT:
+            fee_target_hbox.addWidget(self.lcc_fee_combo)
+        else:
+            fee_target_hbox.addWidget(self.fee_target)
+            fee_target_hbox.addWidget(self.fee_slider)
+            fee_target_hbox.addWidget(self.fee_combo)
         fee_target_hbox.addStretch()
 
         show_lcc_advanced(False)
@@ -479,6 +510,9 @@ class TxEditor(WindowModalDialog, SubmarineSwapMixin, Logger):
         self.feerounding_icon.setEnabled(b)
 
     def get_fee_policy(self):
+        if self.context == TxEditorContext.PAYMENT and hasattr(self, "lcc_fee_combo"):
+            rates = (1000, 5000, 15000)
+            return FeePolicy(f"feerate:{rates[self.lcc_fee_combo.currentIndex()]}")
         feerate = self.feerate_e.get_amount()
         fee_amount = self.fee_e.get_amount()
         if self.is_send_fee_frozen() and fee_amount is not None:
@@ -684,7 +718,10 @@ class TxEditor(WindowModalDialog, SubmarineSwapMixin, Logger):
         self.io_widget.setVisible(self.config.GUI_QT_TX_EDITOR_SHOW_IO)
 
     def set_fee_edit_visible(self):
-        b = self.config.GUI_QT_TX_EDITOR_SHOW_FEE_DETAILS
+        b = (
+            self.config.GUI_QT_TX_EDITOR_SHOW_FEE_DETAILS
+            and self.context != TxEditorContext.PAYMENT
+        )
         detailed = [self.feerounding_icon, self.feerate_e, self.fee_e]
         basic = [self.fee_label, self.feerate_label]
         # first hide, then show
@@ -756,6 +793,18 @@ class TxEditor(WindowModalDialog, SubmarineSwapMixin, Logger):
             self.change_to_ln_swap_providers_button.update()
         else:
             self.change_to_ln_swap_providers_button.setVisible(False)
+
+        if hasattr(self, "lcc_fee_details"):
+            fee = self.tx.get_fee() if self.tx else None
+            size = self.tx.estimated_size() if self.tx else 0
+            if fee is not None and size:
+                self.lcc_fee_details.setText(
+                    f"Total fee: {self.main_window.config.format_amount_and_units(fee)}"
+                    f" | Effective rate: {fee / size:.2f} units/vB"
+                    f" | Size: {size:.0f} vB"
+                )
+            else:
+                self.lcc_fee_details.setText("Total fee: calculating...")
 
         self._update_send_button()
         self._update_message()
@@ -1199,8 +1248,19 @@ class ConfirmTxDialog(TxEditor):
         grid.addWidget(HelpLabel(_("Mining Fee") + ": ", msg), 1, 0)
         grid.addLayout(self.fee_hbox, 1, 1, 1, 3)
 
-        grid.addWidget(HelpLabel(_("Fee policy") + ": ", self.fee_combo.help_msg), 3, 0)
+        if self.context == TxEditorContext.PAYMENT:
+            grid.addWidget(
+                HelpLabel("Network fee:", "Choose a fixed fee rate."),
+                3, 0
+            )
+        else:
+            grid.addWidget(
+                HelpLabel(_("Fee policy") + ": ", self.fee_combo.help_msg),
+                3, 0
+            )
         grid.addLayout(self.fee_target_hbox, 3, 1, 1, 3)
+        if self.context == TxEditorContext.PAYMENT:
+            grid.addWidget(self.lcc_fee_details, 4, 1, 1, 3)
 
         grid.setColumnStretch(4, 1)
 

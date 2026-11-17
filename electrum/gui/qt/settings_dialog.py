@@ -181,6 +181,7 @@ class SettingsDialog(QDialog, QtEventListener):
         unit_combo.currentIndexChanged.connect(lambda x: on_unit(x, nz))
 
         thousandsep_cb = checkbox_from_configvar(self.config.cv.BTC_AMOUNTS_ADD_THOUSANDS_SEP)
+        thousandsep_cb.setText("Add thousand separators to LCC amounts")
         thousandsep_cb.setChecked(self.config.BTC_AMOUNTS_ADD_THOUSANDS_SEP)
 
         def on_set_thousandsep(_x):
@@ -292,6 +293,10 @@ class SettingsDialog(QDialog, QtEventListener):
 
         # Fiat Currency
         self.history_rates_cb = checkbox_from_configvar(self.config.cv.FX_HISTORY_RATES)
+        self.history_rates_cb.setEnabled(False)
+        self.history_rates_cb.setToolTip(
+            "CoinPaprika provides current LCC/USD prices only."
+        )
         ccy_combo = QComboBox()
         ex_combo = QComboBox()
 
@@ -358,7 +363,7 @@ class SettingsDialog(QDialog, QtEventListener):
         units_widgets = []
         units_widgets.append((unit_label, unit_combo))
         units_widgets.append((nz_label, nz))
-        units_widgets.append((msat_cb, None))
+        # LCC: hide Lightning msat precision setting.
         units_widgets.append((thousandsep_cb, None))
         lightning_widgets = []
         lightning_widgets.append((trampoline_cb, None))
@@ -377,7 +382,7 @@ class SettingsDialog(QDialog, QtEventListener):
             (gui_widgets, _('Appearance')),
             (units_widgets, _('Units')),
             (fiat_widgets, _('Fiat')),
-            (lightning_widgets, _('Lightning')),
+            # LCC: Lightning preferences tab hidden.
             (misc_widgets, _('Misc')),
         ]
         for widgets, name in tabs_info:

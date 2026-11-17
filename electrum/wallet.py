@@ -579,6 +579,8 @@ class Abstract_Wallet(ABC, Logger, EventListener):
 
     def can_have_lightning(self) -> bool:
         """ whether this wallet can create new channels """
+        # LCC: Lightning channels are not supported.
+        return False
         # we want static_remotekey to be a wallet address
         if not self.txin_type == 'p2wpkh':
             return False
@@ -4371,7 +4373,8 @@ class Deterministic_Wallet(Abstract_Wallet):
         ln_xprv = self.db.get('lightning_xprv') or self.db.get('lightning_privkey2')
         # lnworker can only be initialized once receiving addresses are available
         # therefore we instantiate lnworker in DeterministicWallet
-        self.lnworker = LNWallet(self, ln_xprv) if ln_xprv else None
+        # LCC: Lightning disabled; saved keys remain untouched.
+        self.lnworker = None
 
     def has_seed(self):
         return self.keystore.has_seed()

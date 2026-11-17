@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QWidget, QGridLayout, QToolButton, QPushButton
 from PyQt6.QtCore import QRect, Qt
-from PyQt6.QtGui import QPen, QPainter, QPixmap
+from PyQt6.QtGui import QPen, QPainter, QPixmap, QColor
 
 from electrum.i18n import _
 from electrum.gui.messages import MSG_LN_UTXO_RESERVE
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 #  show lightning funds that are not usable
 #  pie chart mouse interactive, to prepare a swap
 
-COLOR_CONFIRMED = Qt.GlobalColor.green
+COLOR_CONFIRMED = QColor("#398765")
 COLOR_UNCONFIRMED = Qt.GlobalColor.red
 COLOR_UNMATURED = Qt.GlobalColor.magenta
 COLOR_FROZEN = ColorScheme.BLUE.as_color(True)

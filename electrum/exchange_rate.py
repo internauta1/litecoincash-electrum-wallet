@@ -31,7 +31,7 @@ _logger = get_logger(__name__)
 
 # See https://en.wikipedia.org/wiki/ISO_4217
 # Used when displaying amounts. Bookkeeping precision might need to be higher.
-CCY_PRECISIONS = {'BHD': 3, 'BIF': 0, 'BYR': 0, 'CLF': 4, 'CLP': 0,
+CCY_PRECISIONS = {'USD': 5, 'BHD': 3, 'BIF': 0, 'BYR': 0, 'CLF': 4, 'CLP': 0,
                   'CVE': 0, 'DJF': 0, 'GNF': 0, 'IQD': 3, 'ISK': 0,
                   'JOD': 3, 'JPY': 0, 'KMF': 0, 'KRW': 0, 'KWD': 3,
                   'LYD': 3, 'MGA': 1, 'MRO': 1, 'OMR': 3, 'PYG': 0,
@@ -427,6 +427,36 @@ class Coinbase(ExchangeBase):
         return {ccy: to_decimal(rate) for (ccy, rate) in json["data"]["rates"].items()}
 
 
+
+class CoinPaprika(ExchangeBase):
+    """LCC/USD spot quote from CoinPaprika."""
+
+    async def get_spot_ccys(self):
+        return ["USD"]
+
+    async def request_spot_rates(self, ccy):
+        if ccy not in ("USD", ""):
+            return {}
+
+        data = await self.get_json(
+            "api.coinpaprika.com",
+            "/v1/tickers/lcc-litecoin-cash"
+        )
+
+        if (
+            data.get("id") != "lcc-litecoin-cash"
+            or data.get("symbol") != "LCC"
+        ):
+            raise ValueError("Unexpected CoinPaprika coin")
+
+        price = to_decimal(data["quotes"]["USD"]["price"])
+
+        if not price.is_finite() or price <= 0:
+            raise ValueError("Invalid LCC/USD price")
+
+        return {"USD": price}
+
+
 class CoinGecko(ExchangeBase):
 
     async def request_spot_rates(self, ccy):
@@ -575,7 +605,7 @@ def get_exchanges_and_currencies():
     return d
 
 
-CURRENCIES = get_exchanges_and_currencies()
+CURRENCIES = {"CoinPaprika": ["USD"]}
 
 
 def get_exchanges_by_ccy(history=True):
@@ -603,6 +633,11 @@ class FxThread(ThreadJob, EventListener, NetworkRetryManager[str]):
         )  # note: we poll every 5 seconds for action, so we won't attempt connections more frequently than that.
         self.config = config
         self.register_callbacks()
+        # LCC: only USD spot pricing is supported.
+        if self.config.FX_CURRENCY != "USD":
+            self.config.FX_CURRENCY = "USD"
+        if self.config.FX_HISTORY_RATES:
+            self.config.FX_HISTORY_RATES = False
         self.ccy = self.get_currency()
         self.history_used_spot = False
         self.ccy_combo = None
@@ -610,7 +645,7 @@ class FxThread(ThreadJob, EventListener, NetworkRetryManager[str]):
         self.cache_dir = os.path.join(config.path, 'cache')  # type: str
         self._trigger = asyncio.Event()
         self._trigger.set()
-        self.set_exchange(self.config_exchange())
+        self.set_exchange("CoinPaprika")
         make_dir(self.cache_dir)
 
     @event_listener

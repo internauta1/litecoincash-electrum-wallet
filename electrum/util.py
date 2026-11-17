@@ -903,7 +903,7 @@ def format_satoshis(
 
 FEERATE_PRECISION = 1  # num fractional decimal places for sat/byte fee rates
 _feerate_quanta = Decimal(10) ** (-FEERATE_PRECISION)
-UI_UNIT_NAME_FEERATE_SAT_PER_VBYTE = "unidades/vB"
+UI_UNIT_NAME_FEERATE_SAT_PER_VBYTE = "units/vB"
 UI_UNIT_NAME_FEERATE_SAT_PER_VB = "sat/vB"
 UI_UNIT_NAME_TXSIZE_VBYTES = "vbytes"
 UI_UNIT_NAME_MEMPOOL_MB = "vMB"

@@ -27,7 +27,7 @@ import enum
 from typing import Sequence, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QStandardItemModel, QStandardItem, QColor, QImage, QPixmap, QIcon
 from PyQt6.QtWidgets import QAbstractItemView
 from PyQt6.QtWidgets import QMenu, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QHeaderView
 
@@ -49,6 +49,39 @@ if TYPE_CHECKING:
 ROLE_REQUEST_TYPE = Qt.ItemDataRole.UserRole
 ROLE_REQUEST_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_SORT_ORDER = Qt.ItemDataRole.UserRole + 2
+
+
+
+def _lcc_green_invoice_icon():
+    """LCC: verde discreto, preservando simbolo branco."""
+    pix = read_QIcon("bitcoin.png").pixmap(128, 128)
+    if pix.isNull():
+        return read_QIcon("bitcoin.png")
+
+    img = pix.toImage().convertToFormat(
+        QImage.Format.Format_ARGB32
+    )
+    green = QColor("#398765")
+
+    for y in range(img.height()):
+        for x in range(img.width()):
+            c = img.pixelColor(x, y)
+            if (
+                c.alpha() > 0
+                and c.blue() > c.red() * 1.2
+                and c.blue() > c.green() * 1.1
+            ):
+                img.setPixelColor(
+                    x, y,
+                    QColor(
+                        green.red(),
+                        green.green(),
+                        green.blue(),
+                        c.alpha()
+                    )
+                )
+
+    return QIcon(QPixmap.fromImage(img))
 
 
 class InvoiceList(MyTreeView):
@@ -126,7 +159,11 @@ class InvoiceList(MyTreeView):
             labels[self.Columns.STATUS] = item.get_status_str(status)
             items = [QStandardItem(e) for e in labels]
             self.set_editability(items)
-            items[self.Columns.DATE].setIcon(read_QIcon(icon_name))
+            items[self.Columns.DATE].setIcon(
+                _lcc_green_invoice_icon()
+                if icon_name == "bitcoin.png"
+                else read_QIcon(icon_name)
+            )
             items[self.Columns.STATUS].setIcon(read_QIcon(pr_icons.get(status)))
             items[self.Columns.DATE].setData(key, role=ROLE_REQUEST_ID)
             #items[self.Columns.DATE].setData(item.type, role=ROLE_REQUEST_TYPE)
