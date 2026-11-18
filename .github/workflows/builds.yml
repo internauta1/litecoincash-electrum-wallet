@@ -1,3 +1,4 @@
+# Electrum-LCC beta: register Windows build workflow
 name: builds
 
 on:
