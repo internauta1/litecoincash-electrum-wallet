@@ -788,7 +788,7 @@ class FxThread(ThreadJob, EventListener, NetworkRetryManager[str]):
         if rate.is_nan():
             return _("  (No FX rate available)")
         amount = 1000 if decimal_point == 0 else 1
-        value = self.value_str(amount * COIN / (10**(8 - decimal_point)), rate)
+        value = self.value_str(amount * COIN / (10**(len(str(COIN)) - 1 - decimal_point)), rate)
         return " %d %s~%s %s" % (amount, base_unit, value, self.ccy)
 
     def fiat_value(self, satoshis, rate) -> Decimal:

@@ -863,9 +863,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             self.help_menu.addAction(about_action)
         self.help_menu.addAction(_("&Changelog"), lambda: webopen(constants.RELEASE_NOTES_URL))
         self.help_menu.addAction(_("&Check for updates"), self.show_update_check)
-        self.help_menu.addAction(_("&Official website"), lambda: webopen("https://ltc-electrum.github.io"))
+        self.help_menu.addAction(_("&Official website"), lambda: webopen("https://litecoinca.sh/"))
         self.help_menu.addSeparator()
-        self.help_menu.addAction(_("&Documentation"), lambda: webopen("http://docs.electrum.org/")).setShortcut(QKeySequence.StandardKey.HelpContents)
+        self.help_menu.addAction(_("&Documentation"), lambda: webopen(constants.GIT_REPO_URL)).setShortcut(QKeySequence.StandardKey.HelpContents)
         self.help_menu.addAction(_("&Report Bug"), self.show_report_bug)
         self.help_menu.addSeparator()
         if self.network:
@@ -875,23 +875,29 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.setMenuBar(menubar)
 
     def donate_to_server(self):
-        d = self.network.get_donation_address()
-        if d:
-            self.show_send_tab()
-            host = self.network.get_parameters().server.host
-            self.handle_payment_identifier('litecoin:%s?message=donation for %s' % (d, host))
-        else:
-            self.show_error(_('No donation address for this server'))
+        # Donation address for the Electrum-LCC server.
+        address = "lcc1q3l3tnrswh9dwvlyhrgq2qxcwdg7ku3yhjqgctp"
+        self.show_send_tab()
+        self.handle_payment_identifier(address)
 
     def show_about(self):
-        QMessageBox.about(self, "Electrum-LCC",
-                          (_("Version")+" %s" % ELECTRUM_VERSION + "\n\n" +
-                           _("Electrum's focus is speed, with low resource usage and simplifying Bitcoin.") + " " +
-                           _("You do not need to perform regular backups, because your wallet can be "
-                              "recovered from a secret phrase that you can memorize or write on paper.") + " " +
-                           _("Startup times are instant because it operates in conjunction with high-performance "
-                              "servers that handle the most complicated parts of the Bitcoin system.") + "\n\n" +
-                           _("Uses icons from the Icons8 icon pack (icons8.com).")))
+        QMessageBox.about(
+            self,
+            "Electrum-LCC",
+            (
+                _("Version") + " %s" % ELECTRUM_VERSION
+                + "\n\n"
+                + "Electrum-LCC is a lightweight desktop wallet for Litecoin Cash (LCC)."
+                + "\n\n"
+                + "It connects to ElectrumX servers to synchronize balances and transactions without downloading the entire blockchain."
+                + "\n\n"
+                + _("Your recovery phrase allows you to restore access to your coins. Keep it safe and offline. Wallet-specific information, such as labels and notes, may require separate backups.")
+                + "\n\n"
+                + _("This version is under active development and testing.")
+                + "\n\n"
+                + _("Uses icons from the Icons8 icon pack (icons8.com).")
+            ),
+        )
 
     def show_bitcoin_paper(self):
         filename = os.path.join(self.config.path, 'bitcoin.pdf')
@@ -918,13 +924,26 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.gui_object._update_check = UpdateCheck(latest_version=version)
 
     def show_report_bug(self):
-        msg = ' '.join([
-            _("Please report any bugs as issues on github:<br/>"),
-            f'''<a href="{constants.GIT_REPO_ISSUES_URL}">{constants.GIT_REPO_ISSUES_URL}</a><br/><br/>''',
-            _("Before reporting a bug, upgrade to the most recent version of Electrum (latest release or git HEAD), and include the version number in your report."),
-            _("Try to explain not only what the bug is, but how it occurs.")
-         ])
-        self.show_message(msg, title="Electrum-LCC - " + _("Reporting Bugs"), rich_text=True)
+        issues_url = (
+            "https://github.com/internauta1/"
+            "litecoincash-electrum-wallet/issues"
+        )
+
+        msg = (
+            "Please report Electrum-LCC bugs on GitHub:<br/>"
+            f'<a href="{issues_url}">{issues_url}</a><br/><br/>'
+            "Include the Electrum-LCC version, steps to reproduce "
+            "the problem, expected and actual behaviour, and "
+            "relevant error messages.<br/><br/>"
+            "Do not publish wallet seeds, private keys, "
+            "passwords, or sensitive information."
+        )
+
+        self.show_message(
+            msg,
+            title="Electrum-LCC - Reporting Bugs",
+            rich_text=True,
+        )
 
     def notify_transactions(self):
         if self.tx_notification_queue.qsize() == 0:

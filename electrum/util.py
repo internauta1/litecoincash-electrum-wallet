@@ -991,21 +991,15 @@ def delta_time_str(distance_in_time: timedelta, *, include_seconds: bool = False
 
 
 mainnet_block_explorers = {
-    'Litecoin Space': ('https://litecoinspace.org/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'Bitaps.com': ('https://ltc.bitaps.com/',
-                   {'tx': '', 'addr': ''}),
-    'Blockchair.com': ('https://blockchair.com/litecoin/',
-                       {'tx': 'transaction/', 'addr': 'address/'}),
-    'Blockchair.com (Tor)': ('http://blkchairbknpn73cfjhevhla7rkp4ed5gg2knctvv7it4lioy22defid.onion/litecoin/',
-                             {'tx': 'transaction/', 'addr': 'address/'}),
-    'BlockCypher.com': ('https://live.blockcypher.com/ltc/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'SoChain': ('https://chain.so/',
-                {'tx': 'tx/LTC/', 'addr': 'address/LTC/'}),
-    'system default': ('blockchain://12a765e31ffd4059bada1e25190f6e98c99d9714d334efa41a195a7e7e04bfe2/',
-                       {'tx': 'tx/', 'addr': 'address/'}),
+    'Chainz CryptoID (LCC)': (
+        'https://chainz.cryptoid.info/lcc/',
+        {
+            'tx': 'tx.dws?',
+            'addr': 'address.dws?',
+        }
+    ),
 }
+
 
 testnet_block_explorers = {
     'Litecoin Space': ('https://litecoinspace.org/testnet/',
