@@ -56,7 +56,7 @@ extras_require['fast'] = extras_require['crypto']
 
 
 setup(
-    name="Electrum-LTC",
+    name="Electrum-LCC",
     version=version.ELECTRUM_VERSION,
     python_requires='>={}'.format(MIN_PYTHON_VERSION),
     install_requires=requirements,
@@ -73,10 +73,10 @@ setup(
     include_package_data=True,
     scripts=['electrum/electrum-ltc'],
     data_files=data_files,
-    description="Lightweight Litecoin Wallet",
+    description="Lightweight Litecoin Cash (LCC) Wallet",
     author="Thomas Voegtlin",
     author_email="thomasv@electrum.org",
     license="MIT Licence",
-    url="https://ltc-electrum.github.io",
-    long_description="""Lightweight Litecoin Wallet""",
+    url="https://github.com/internauta1/litecoincash-electrum-wallet",
+    long_description="""Electrum-style wallet for Litecoin Cash (LCC).""",
 )
