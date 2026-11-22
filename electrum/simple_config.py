@@ -729,7 +729,7 @@ If disabled, the full wallet file is written to disk for every change. Experimen
     )
 
     FX_USE_EXCHANGE_RATE = ConfigVar('use_exchange_rate', default=False, type_=bool)
-    FX_CURRENCY = ConfigVar('currency', default='EUR', type_=str)
+    FX_CURRENCY = ConfigVar('currency', default='USD', type_=str)
     FX_EXCHANGE = ConfigVar('use_exchange', default='CoinGecko', type_=str)  # default exchange should ideally provide historical rates
     FX_HISTORY_RATES = ConfigVar(
         'history_rates', default=False, type_=bool,
@@ -940,7 +940,7 @@ Warning: setting this to too low will result in lots of payment failures."""),
     )
     GUI_ENABLE_DEBUG_LOGS = ConfigVar('gui_enable_debug_logs', default=False, type_=bool)
     LOCALIZATION_LANGUAGE = ConfigVar(
-        'language', default="", type_=str,
+        'language', default="en_UK", type_=str,
         short_desc=lambda: _("Language"),
         long_desc=lambda: _("Select which language is used in the GUI (after restart)."),
     )

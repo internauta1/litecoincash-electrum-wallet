@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QTimer, QEvent
+from PyQt6.QtCore import QTimer, QEvent, Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QLabel, QHBoxLayout, QScrollArea
 
@@ -36,10 +36,10 @@ class WCTermsOfUseScreen(WizardComponent):
         self.wizard_title = _('Electrum Terms of Use')
         self.img_label = QLabel()
         pixmap = QPixmap(icon_path('electrum.png'))
-        self.img_label.setPixmap(pixmap)
+        self.img_label.setPixmap(pixmap.scaledToWidth(56, mode=Qt.TransformationMode.SmoothTransformation))
         self.img_label2 = QLabel()
         pixmap = QPixmap(icon_path('electrum_text.png'))
-        self.img_label2.setPixmap(pixmap)
+        self.img_label2.setPixmap(pixmap.scaledToWidth(180, mode=Qt.TransformationMode.SmoothTransformation))
         hbox_img = QHBoxLayout()
         hbox_img.addStretch(1)
         hbox_img.addWidget(self.img_label)
