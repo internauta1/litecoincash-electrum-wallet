@@ -980,6 +980,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             mwebd_status = None
         mwebd_status_changed = mwebd_status != self.mwebd_status
         self.mwebd_status = mwebd_status
+        # LCC_BETA2_QT_FAST_PREVIEW_V1
+        self._lcc_fast_preview_tick()
         # Note this runs in the GUI thread
         if self.need_update.is_set():
             self.need_update.clear()
@@ -1069,6 +1071,104 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         btc_e.textChanged.connect(partial(edit_changed, btc_e))
         fiat_e.is_last_edited = False
 
+    # LCC_BETA2_QT_FAST_PREVIEW_V1
+    def _lcc_fast_preview_tick(self):
+        """Poll an async, read-only ElectrumX preview from the Qt thread."""
+        import asyncio as _asyncio
+        import os as _os
+        import time as _time
+
+        if _os.environ.get(
+            "ELECTRUM_LCC_EXPERIMENTAL_WALLET_SYNC"
+        ) != "1":
+            return
+
+        network = self.network
+        wallet = self.wallet
+
+        if network is None or wallet is None:
+            return
+
+        interface = getattr(network, "interface", None)
+
+        if interface is None or not network.is_connected():
+            self._lcc_fast_preview_data = None
+            return
+
+        identity = (id(wallet), id(interface))
+
+        if getattr(self, "_lcc_fast_preview_identity", None) != identity:
+            previous = getattr(self, "_lcc_fast_preview_future", None)
+            if previous is not None and not previous.done():
+                previous.cancel()
+
+            self._lcc_fast_preview_identity = identity
+            self._lcc_fast_preview_future = None
+            self._lcc_fast_preview_data = None
+            self._lcc_fast_preview_next = 0
+
+        if wallet.is_up_to_date():
+            previous = getattr(self, "_lcc_fast_preview_future", None)
+            if previous is not None and not previous.done():
+                previous.cancel()
+            self._lcc_fast_preview_future = None
+            self._lcc_fast_preview_data = None
+            return
+
+        now = _time.monotonic()
+        future = getattr(self, "_lcc_fast_preview_future", None)
+
+        if future is not None:
+            if not future.done():
+                return
+
+            self._lcc_fast_preview_future = None
+            self._lcc_fast_preview_next = now + 30
+
+            try:
+                result = future.result()
+            except Exception:
+                result = None
+
+            if (
+                isinstance(result, dict)
+                and result.get("status") == "server_unverified"
+                and result.get("spv_verified") is False
+            ):
+                self._lcc_fast_preview_data = result
+            else:
+                self._lcc_fast_preview_data = None
+
+            self.update_status()
+            return
+
+        if now < getattr(self, "_lcc_fast_preview_next", 0):
+            return
+
+        loop = getattr(network, "asyncio_loop", None)
+
+        if loop is None or not loop.is_running():
+            return
+
+        try:
+            from electrum.lcc_experimental_fast_preview import (
+                fetch_unverified_wallet_preview,
+            )
+
+            coro = fetch_unverified_wallet_preview(network, wallet)
+
+            try:
+                self._lcc_fast_preview_future = (
+                    _asyncio.run_coroutine_threadsafe(coro, loop)
+                )
+            except Exception:
+                coro.close()
+                raise
+
+        except Exception:
+            self._lcc_fast_preview_next = now + 30
+            self._lcc_fast_preview_data = None
+
     def update_status(self):
         if not self.wallet:
             return
@@ -1135,6 +1235,34 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             #       hence "leaking" the wallet balance (see #5665)
             name_and_version = self.get_app_name_and_version_str()
             self.tray.setToolTip(f"{name_and_version} ({network_text})")
+        # LCC_BETA2_QT_FAST_PREVIEW_V1
+        # Server-reported preview: display only, never spendable balance.
+        _lcc_preview = getattr(self, "_lcc_fast_preview_data", None)
+
+        if (
+            self.network is not None
+            and self.network.is_connected()
+            and self.wallet is not None
+            and not self.wallet.is_up_to_date()
+            and getattr(self, "_lcc_fast_preview_identity", None)
+                == (id(self.wallet), id(self.network.interface))
+            and isinstance(_lcc_preview, dict)
+            and _lcc_preview.get("status") == "server_unverified"
+        ):
+            _lcc_confirmed = _lcc_preview.get("confirmed_sats")
+            _lcc_unconfirmed = _lcc_preview.get("unconfirmed_sats")
+
+            if (
+                type(_lcc_confirmed) is int
+                and type(_lcc_unconfirmed) is int
+            ):
+                _lcc_total = _lcc_confirmed + _lcc_unconfirmed
+
+                network_text += (
+                    " | ElectrumX (not SPV verified): "
+                    + self.format_amount_and_units(_lcc_total)
+                )
+
         self.balance_label.setText(balance_text or network_text)
         if self.status_button:
             self.status_button.setIcon(icon)

@@ -953,6 +953,114 @@ class Interface(Logger):
         # checks done.
         return headers
 
+
+    # LCC_HIVE_P2P_INTERFACE_V1
+    async def lcc_collect_hive_candidate(
+        self,
+        height: int,
+        *,
+        peers=None,
+        prefetched_full_block=None,
+    ):
+        """Collect independent Hive evidence for a candidate block.
+
+        This method must NOT save, connect or accept the header.
+        Header acceptance remains disabled until complete
+        Litecoin Cash consensus verification is implemented.
+        """
+        # LCC_HIVE_HEIGHT_IMPORT_FIX_V1
+        from .lcc_header_rules import FIRST_HIVE_BLOCK_HEIGHT
+        from .blockchain import (
+            deserialize_header,
+            hash_header,
+        )
+        from .lcc_hive_history import (
+            collect_hive_with_full_block,
+        )
+
+        if constants.net.TESTNET:
+            raise ValueError("Mainnet Hive verifier only")
+
+        if type(height) is not int or height < FIRST_HIVE_BLOCK_HEIGHT:
+            raise ValueError("Invalid Hive candidate height")
+
+        # Establish the expected parent on the current local branch.
+        # LCC_BETA2_HIVE_CANDIDATE_LOCK_V5
+        import asyncio as _lcc_asyncio
+        from .lcc_experimental_catchup import (
+            _lcc_bhi_owner,
+            _LCCAlreadyLockedContext,
+        )
+        _lcc_owner_here = (
+            _lcc_bhi_owner.get()
+            is _lcc_asyncio.current_task()
+        )
+        if (
+            _lcc_owner_here
+            and not self.network.bhi_lock.locked()
+        ):
+            raise RuntimeError(
+                'Hive BHI lock ownership inconsistent'
+            )
+        async with (
+            _LCCAlreadyLockedContext()
+            if _lcc_owner_here
+            else self.network.bhi_lock
+        ):
+            chain = self.network.blockchain()
+            previous = chain.read_header(height - 1)
+
+            if previous is None:
+                raise ValueError("Missing candidate parent header")
+
+            parent_hash = hash_header(previous)
+
+        # Request the candidate without storing it.
+        raw_hex = await self.session.send_request(
+            "blockchain.block.header",
+            [height],
+            timeout=20,
+        )
+
+        if not isinstance(raw_hex, str) or len(raw_hex) != 160:
+            raise ValueError("Invalid candidate header response")
+
+        try:
+            raw_header = bytes.fromhex(raw_hex)
+            candidate = deserialize_header(raw_header, height)
+        except Exception as exc:
+            raise ValueError(
+                "Invalid serialized Hive header"
+            ) from exc
+
+        if candidate.get("prev_block_hash") != parent_hash:
+            raise ValueError(
+                "Candidate does not extend the local branch"
+            )
+
+        # Includes historical BCT evidence, Hive cryptography
+        # and the P2P full-block structural checks.
+        evidence = await collect_hive_with_full_block(
+            interface=self,
+            network=self.network,
+            candidate_header=candidate,
+            peers=peers,
+            prefetched_full_block=prefetched_full_block,
+        )
+
+        if evidence.get("full_block_structure_verified") is not True:
+            raise ValueError("Full-block structure not verified")
+
+        if evidence.get("hive_cryptography_verified") is not True:
+            raise ValueError("Hive cryptography not verified")
+
+        # Never authorize header acceptance here.
+        return {
+            "candidate_header": candidate,
+            "evidence": evidence,
+            "consensus_validated": False,
+        }
+
     async def request_chunk_below_max_checkpoint(
         self,
         *,
@@ -984,6 +1092,94 @@ class Interface(Logger):
         """Request some headers starting at `height` to grow the blockchain of this interface.
         Returns number of headers we managed to connect, starting at `height`.
         """
+
+        # LCC_BETA2_RUNTIME_HIVE_SYNC_V1
+        # Experimental isolated-wallet route only.
+        # The ordinary Electrum synchronization remains unchanged.
+        import os as _lcc_os
+
+        if _lcc_os.environ.get(
+            "ELECTRUM_LCC_EXPERIMENTAL_WALLET_SYNC"
+        ) == "1":
+            from pathlib import Path as _LCCPath
+
+            if _lcc_os.environ.get(
+                "ELECTRUM_LCC_EXPERIMENTAL_HIVE_SPV"
+            ) != "1":
+                raise RuntimeError(
+                    "Experimental Hive SPV opt-in required"
+                )
+
+            if _lcc_os.environ.get(
+                "ELECTRUM_LCC_EXPERIMENTAL_HIVE_PREFETCH"
+            ) != "1":
+                raise RuntimeError(
+                    "Experimental Hive prefetch required"
+                )
+
+            if not _lcc_os.environ.get(
+                "ELECTRUM_LCC_EXPERIMENTAL_HIVE_PREFETCH_PEERS"
+            ):
+                raise RuntimeError(
+                    "Explicit Hive P2P peer required"
+                )
+
+            _root = (
+                _LCCPath.home()
+                / "electrum-lcc-development"
+            ).resolve()
+
+            _path = _LCCPath(
+                self.blockchain.path()
+            ).resolve(strict=True)
+
+            if (
+                _path.name != "blockchain_headers"
+                or _path.parent.parent != _root
+                or not _path.parent.name.startswith(
+                    "beta2-hive-experimental-"
+                )
+            ):
+                raise RuntimeError(
+                    "Experimental synchronization outside lab"
+                )
+
+            if self.blockchain is not self.network.blockchain():
+                raise RuntimeError(
+                    "Selected blockchain changed"
+                )
+
+            if height > tip:
+                return 0
+
+            if height != self.blockchain.height() + 1:
+                return 0
+
+            from .lcc_experimental_catchup import (
+                run_experimental_catchup,
+            )
+
+            _previous_height = self.blockchain.height()
+            _count = min(96, tip - height + 1)
+
+            await run_experimental_catchup(
+                self,
+                start_height=height,
+                max_headers=_count,
+                max_seconds=70,
+            )
+
+            _advanced = (
+                self.blockchain.height() - _previous_height
+            )
+
+            if not 0 <= _advanced <= _count:
+                raise RuntimeError(
+                    "Invalid experimental chain advancement"
+                )
+
+            return _advanced
+
         if not is_non_negative_integer(height):
             raise Exception(f"{repr(height)} is not a block height")
         if not is_non_negative_integer(tip):
@@ -1190,6 +1386,99 @@ class Interface(Logger):
         True - new header we didn't have, or reorg
         """
         height, header = self.tip, self.tip_header
+        # LCC_BETA2_SYNC_OUTSIDE_BHI_V8
+        # Experimental isolated sync: never hold bhi_lock
+        # across network requests or Hive/BCT proof collection.
+        import os as _lcc_v8_os
+
+        if _lcc_v8_os.environ.get(
+            "ELECTRUM_LCC_EXPERIMENTAL_WALLET_SYNC"
+        ) == "1":
+            from pathlib import Path as _lcc_v8_Path
+
+            if constants.net.TESTNET:
+                raise RuntimeError(
+                    "Experimental mainnet sync on testnet"
+                )
+
+            if _lcc_v8_os.environ.get(
+                "ELECTRUM_LCC_EXPERIMENTAL_HIVE_SPV"
+            ) != "1":
+                raise RuntimeError(
+                    "Experimental Hive validation disabled"
+                )
+
+            _lcc_v8_chain = self.blockchain
+
+            if _lcc_v8_chain is None:
+                raise RuntimeError("No selected blockchain")
+
+            _lcc_v8_path = _lcc_v8_Path(
+                _lcc_v8_chain.path()
+            ).resolve(strict=True)
+
+            _lcc_v8_root = (
+                _lcc_v8_Path.home()
+                / "electrum-lcc-development"
+            ).resolve()
+
+            if (
+                _lcc_v8_path.name != "blockchain_headers"
+                or _lcc_v8_path.parent.parent != _lcc_v8_root
+                or not _lcc_v8_path.parent.name.startswith(
+                    "beta2-hive-experimental-"
+                )
+                or not (
+                    _lcc_v8_path.parent / "checkpoint-core.json"
+                ).is_file()
+            ):
+                raise RuntimeError(
+                    "Experimental sync outside isolated lab"
+                )
+
+            if _lcc_v8_chain is not self.network.blockchain():
+                raise RuntimeError(
+                    "Selected blockchain mismatch"
+                )
+
+            if type(height) is not int or height < 0:
+                raise RuntimeError("Invalid remote height")
+
+            # LCC_BETA2_REORG_RECOVERY_V9
+            from .lcc_experimental_reorg import reconcile_reorg_v9
+            await reconcile_reorg_v9(self, height)
+
+            if _lcc_v8_chain.height() >= height:
+                if _lcc_v8_chain.check_header(header):
+                    return False
+                raise RuntimeError(
+                    "Experimental reorganization unsupported"
+                )
+
+            self.logger.warning(
+                "LCC BETA2 V8: sync outside bhi_lock "
+                "from %d to %d",
+                _lcc_v8_chain.height(),
+                height,
+            )
+
+            await self.sync_until(height)
+
+            if _lcc_v8_chain is not self.network.blockchain():
+                raise RuntimeError(
+                    "Blockchain changed during sync"
+                )
+
+            if (
+                _lcc_v8_chain.height() < height
+                or not _lcc_v8_chain.check_header(header)
+            ):
+                raise RuntimeError(
+                    "Experimental sync did not verify server tip"
+                )
+
+            return True
+
         async with self.network.bhi_lock:
             if self.blockchain.height() >= height and self.blockchain.check_header(header):
                 # another interface amended the blockchain
@@ -1285,17 +1574,164 @@ class Interface(Logger):
             if (
                 not constants.net.TESTNET
                 and height >= FIRST_HIVE_BLOCK_HEIGHT
-                and local_height == FIRST_HIVE_BLOCK_HEIGHT - 1
+                and (
+                    local_height == FIRST_HIVE_BLOCK_HEIGHT - 1
+                    or (
+                        os.environ.get(
+                            'ELECTRUM_LCC_EXPERIMENTAL_HIVE_SPV'
+                        ) == '1'
+                        and FIRST_HIVE_BLOCK_HEIGHT <= local_height
+                        < FIRST_HIVE_BLOCK_HEIGHT + 2048
+                        and self.blockchain is not None
+                        and 'beta2-hive-experimental-'
+                        in str(self.blockchain.path())
+                    )
+                )
             ):
+                # LCC_HIVE_ASYNC_DEADLOCK_FIX_V1
+                # This method already holds network.bhi_lock.
+                # Schedule the probe instead of awaiting it here.
+                # The lock is released before the task can run.
+                # Header acceptance remains disabled.
+
+                if getattr(
+                    self, "_lcc_hive_probe_height", None
+                ) != local_height + 1:
+                    self._lcc_hive_probe_height = local_height + 1
+                    probe_height = local_height + 1
+
+                    async def _run_lcc_hive_probe():
+                        self.logger.info(
+                            "LCC: validating Hive candidate %d",
+                            probe_height,
+                        )
+
+                        try:
+                            # LCC_EXPERIMENTAL_CONTINUOUS_CATCHUP_V1
+                            if (
+                                probe_height > FIRST_HIVE_BLOCK_HEIGHT
+                                and os.environ.get(
+                                    "ELECTRUM_LCC_EXPERIMENTAL_HIVE_SPV"
+                                ) == "1"
+                            ):
+                                from .lcc_experimental_catchup import (
+                                    run_experimental_catchup,
+                                )
+                                await run_experimental_catchup(
+                                    self,
+                                    start_height=probe_height,
+                                )
+                                return
+
+                            # LCC_EXPERIMENTAL_SUBSEQUENT_HIVE_V1
+                            if probe_height > FIRST_HIVE_BLOCK_HEIGHT:
+                                from .blockchain import deserialize_header
+                                from .lcc_header_rules import classify_header
+
+                                raw_hex = await self.session.send_request(
+                                    "blockchain.block.header",
+                                    [probe_height],
+                                    timeout=20,
+                                )
+
+                                if not isinstance(raw_hex, str) or len(raw_hex) != 160:
+                                    raise ValueError(
+                                        "Invalid next header response"
+                                    )
+
+                                next_header = deserialize_header(
+                                    bytes.fromhex(raw_hex),
+                                    probe_height,
+                                )
+
+                                if classify_header(
+                                    probe_height,
+                                    next_header["version"],
+                                    next_header["nonce"],
+                                ) != "hive":
+                                    self.logger.info(
+                                        "LCC: next block %d is not Hive",
+                                        probe_height,
+                                    )
+                                    return
+
+                            result = await self.lcc_collect_hive_candidate(
+                                probe_height
+                            )
+
+                            evidence = result["evidence"]
+
+                            self.logger.warning(
+                                "LCC: Hive candidate checked; "
+                                "crypto=%s structure=%s "
+                                "consensus_validated=%s",
+                                evidence.get(
+                                    "hive_cryptography_verified"
+                                ),
+                                evidence.get(
+                                    "full_block_structure_verified"
+                                ),
+                                evidence.get(
+                                    "consensus_validated"
+                                ),
+                            )
+
+
+                            # LCC_EXPERIMENTAL_FIRST_HIVE_SPV_V2
+
+                            if os.environ.get(
+                                "ELECTRUM_LCC_EXPERIMENTAL_HIVE_SPV"
+                            ) == "1":
+                                from .lcc_experimental_hive_spv import (
+                                    accept_first_hive_spv,
+                                )
+
+                                await accept_first_hive_spv(
+                                    self, result
+                                )
+
+                        except asyncio.CancelledError:
+                            self.logger.info(
+                                "LCC: Hive probe cancelled"
+                            )
+                            raise
+
+                        except Exception:
+                            self.logger.exception(
+                                "LCC: Hive evidence verification "
+                                "failed; header remains rejected"
+                            )
+
+                    import asyncio
+
+                    self._lcc_hive_probe_task = (
+                        asyncio.create_task(
+                            _run_lcc_hive_probe(),
+                            name="lcc-hive-first-block-probe",
+                        )
+                    )
+
                 if not getattr(self, "_lcc_hive_paused", False):
                     self.logger.warning(
-                        "LCC: stopped at first Hive block 1565612; "
-                        "Hive proof validation is not implemented"
+                        "LCC: waiting for complete Hive "
+                        "header acceptance and chainwork integration"
                     )
                     self._lcc_hive_paused = True
+
                 return False
 
-            await self.sync_until(height)
+            # LCC_BETA2_BHI_DEADLOCK_FIX_V4
+            import os as _lcc_os
+            if _lcc_os.environ.get('ELECTRUM_LCC_EXPERIMENTAL_WALLET_SYNC') == '1':
+                import asyncio as _lcc_asyncio
+                from .lcc_experimental_catchup import _lcc_bhi_owner
+                _lcc_token = _lcc_bhi_owner.set(_lcc_asyncio.current_task())
+                try:
+                    await self.sync_until(height)
+                finally:
+                    _lcc_bhi_owner.reset(_lcc_token)
+            else:
+                await self.sync_until(height)
             return True
 
     async def sync_until(
@@ -1304,6 +1740,90 @@ class Interface(Logger):
         *,
         next_height: Optional[int] = None,  # sync target. typically the tip, except in unit tests
     ) -> Tuple[ChainResolutionMode, int]:
+
+        # LCC_BETA2_SYNC_UNTIL_HIVE_ROUTE_V2
+        # Isolated experimental route before legacy binary search.
+        import os as _lcc_os
+
+        if _lcc_os.environ.get(
+            "ELECTRUM_LCC_EXPERIMENTAL_WALLET_SYNC"
+        ) == "1":
+            from pathlib import Path as _LCCPath
+
+            _chain = self.blockchain
+            _root = (
+                _LCCPath.home()
+                / "electrum-lcc-development"
+            ).resolve()
+
+            try:
+                _path = _LCCPath(
+                    _chain.path()
+                ).resolve(strict=True)
+            except OSError as exc:
+                raise RuntimeError(
+                    "Experimental blockchain file unavailable"
+                ) from exc
+
+            if (
+                _path.name != "blockchain_headers"
+                or _path.parent.parent != _root
+                or not _path.parent.name.startswith(
+                    "beta2-hive-experimental-"
+                )
+                or not (
+                    _path.parent / "checkpoint-core.json"
+                ).is_file()
+            ):
+                raise RuntimeError(
+                    "Untrusted experimental sync directory"
+                )
+
+            if _chain is not self.network.blockchain():
+                raise RuntimeError(
+                    "Selected blockchain changed"
+                )
+
+            if type(height) is not int or height < 0:
+                raise RuntimeError("Invalid remote height")
+
+            if height < _chain.height():
+                raise RuntimeError(
+                    "Experimental reorganization unsupported"
+                )
+
+            while _chain.height() < height:
+                _before = _chain.height()
+
+                _advanced = await self._fast_forward_chain(
+                    height=_before + 1,
+                    tip=height,
+                )
+
+                if (
+                    type(_advanced) is not int
+                    or not 1 <= _advanced <= 96
+                    or _chain.height() != _before + _advanced
+                ):
+                    raise RuntimeError(
+                        "Experimental catchup made "
+                        "no valid forward progress"
+                    )
+
+                if _chain is not self.network.blockchain():
+                    raise RuntimeError(
+                        "Blockchain changed during catchup"
+                    )
+
+            # Notify the Electrum network after validated progress.
+            _event = getattr(
+                self, "_blockchain_updated", None
+            )
+            if _event is not None:
+                _event.set()
+
+            return
+
         if next_height is None:
             next_height = self.tip
         last = None  # type: Optional[ChainResolutionMode]

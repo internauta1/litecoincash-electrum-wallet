@@ -111,11 +111,41 @@ def pow_hash_header(header: dict) -> str:
     if pow_type == 'sha256d':
         return hash_raw_header(serialize_header(header))
 
+    # LCC_MINOTAURX_POW_HASH_V1
+    # Core GetPoWHash() uses MinotaurX for this PoW type.
+    # Block identity remains SHA256d via hash_header().
+    # This function does NOT establish BIP9 activation,
+    # difficulty correctness or authorization to connect.
+    if pow_type == 'minotaurx':
+        if height < 2540160:
+            raise NotImplementedError(
+                "MinotaurX before mainnet activation boundary"
+            )
+
+        from .lcc_minotaurx import minotaurx_hash
+
+        raw = serialize_header(header)
+
+        if len(raw) != 80:
+            raise ValueError("Invalid MinotaurX header length")
+
+        result = minotaurx_hash(raw)
+
+        if not isinstance(result, bytes) or len(result) != 32:
+            raise ValueError("Invalid native MinotaurX result")
+
+        return result[::-1].hex()
+
     raise NotImplementedError(
         f"LCC {pow_type} proof verification is not implemented"
     )
 
 # block hash -> chain work; up to and including that block
+
+# Exact, branch-specific pre-Hive chainwork checkpoints.
+# Deliberately separate from Electrum's legacy retarget cache.
+_LCC_PRE_HIVE_CHAINWORK_CACHE = {}
+
 _CHAINWORK_CACHE = {
     "0000000000000000000000000000000000000000000000000000000000000000": 0,  # virtual block at height -1
 }  # type: Dict[str, int]
@@ -864,31 +894,130 @@ class Blockchain(Logger):
         return work
 
     @with_lock
+    # LCC_EXACT_PRE_HIVE_CHAINWORK_V1
     def get_chainwork(self, height=None) -> int:
+        """Accumulate individual header work on the selected branch.
+
+        Mainnet Hive chainwork is deliberately unavailable until
+        its Core-specific consensus multipliers are integrated.
+        """
         if height is None:
             height = max(0, self.height())
+
+        if type(height) is not int or height < 0:
+            raise ValueError("Invalid chainwork height")
+
         if constants.net.TESTNET:
-            # On testnet/regtest, difficulty works somewhat different.
-            # It's out of scope to properly implement that.
             return height
-        last_retarget = height // CHUNK_SIZE * CHUNK_SIZE - 1
-        cached_height = last_retarget
-        while _CHAINWORK_CACHE.get(self.get_hash(cached_height)) is None:
-            if cached_height <= -1:
+
+        # LCC_HIVE_CHAINWORK_INTEGRATION_V1
+        from .lcc_chainwork import base_work
+
+        if height >= FIRST_HIVE_BLOCK_HEIGHT:
+            from functools import lru_cache
+            from .lcc_chainwork import (
+                block_work,
+                core_difficulty_from_bits,
+            )
+            from .lcc_bip9 import (
+                cached_state_for_height,
+                State,
+            )
+            from .lcc_mainnet import mainnet_bip9_deployments
+
+            deployment = mainnet_bip9_deployments()["hive11"]
+
+            @lru_cache(maxsize=2048)
+            def work_header(h):
+                if type(h) is not int or h < 0 or h > height:
+                    return None
+
+                item = self.read_header(h)
+
+                if item is None:
+                    raise MissingHeader()
+
+                if item.get("block_height") != h:
+                    raise InvalidHeader(
+                        "Chainwork historical height mismatch"
+                    )
+
+                return item
+
+            def is_hive(h):
+                item = work_header(h)
+
+                return (
+                    item is not None
+                    and h >= HIVE_ACTIVATION_HEIGHT
+                    and item.get("nonce") == 192
+                )
+
+            def hive11_enabled(h):
+                # Core GetBlockProof calls IsHive11Enabled
+                # with the current block index. This tests
+                # the state applicable to the next block.
+                return (
+                    cached_state_for_height(
+                        h + 1,
+                        work_header,
+                        deployment,
+                    ) == State.ACTIVE
+                )
+
+            def hive_difficulty(h):
+                item = work_header(h)
+
+                if item is None:
+                    raise MissingHeader()
+
+                return core_difficulty_from_bits(
+                    int(item["bits"])
+                )
+
+        # Independent cache: do not use the previous approximation.
+        cache = _LCC_PRE_HIVE_CHAINWORK_CACHE
+
+        total = 0
+        start = 0
+
+        # Find the closest cached ancestor on this exact branch.
+        checkpoint = height // CHUNK_SIZE * CHUNK_SIZE
+
+        while checkpoint > 0:
+            checkpoint_hash = self.get_hash(checkpoint)
+            cached = cache.get(checkpoint_hash)
+
+            if cached is not None:
+                total = cached
+                start = checkpoint + 1
                 break
-            cached_height -= CHUNK_SIZE
-        assert cached_height >= -1, cached_height
-        running_total = _CHAINWORK_CACHE[self.get_hash(cached_height)]
-        while cached_height < last_retarget:
-            cached_height += CHUNK_SIZE
-            work_in_single_header = self.chainwork_of_header_at_height(cached_height)
-            work_in_chunk = CHUNK_SIZE * work_in_single_header
-            running_total += work_in_chunk
-            _CHAINWORK_CACHE[self.get_hash(cached_height)] = running_total
-        cached_height += CHUNK_SIZE
-        work_in_single_header = self.chainwork_of_header_at_height(cached_height)
-        work_in_last_partial_chunk = (height % CHUNK_SIZE + 1) * work_in_single_header
-        return running_total + work_in_last_partial_chunk
+
+            checkpoint -= CHUNK_SIZE
+
+        for h in range(start, height + 1):
+            header = self.read_header(h)
+
+            if header is None:
+                raise MissingHeader()
+
+            if h >= FIRST_HIVE_BLOCK_HEIGHT:
+                total += block_work(
+                    height=h,
+                    get_header=work_header,
+                    is_hive=is_hive,
+                    hive11_enabled=hive11_enabled,
+                    hive_difficulty=hive_difficulty,
+                )
+            else:
+                total += base_work(int(header["bits"]))
+
+            # Cache only complete intervals, keyed by block hash.
+            if h > 0 and h % CHUNK_SIZE == 0:
+                cache[self.get_hash(h)] = total
+
+        return total
+
 
     def can_connect(self, header: Optional[dict], *, check_height: bool = True) -> bool:
         if header is None:
@@ -942,9 +1071,208 @@ class Blockchain(Logger):
                 target = self.bits_to_target(bits)
 
             else:
-                # Hive and later consensus rules are
-                # not fully verified yet. Fail closed.
-                return False
+                # LCC_EXPERIMENTAL_FIRST_HIVE_SPV_V2
+                # Experimental, explicitly enabled and
+                # restricted to an isolated test directory.
+                import os
+
+                if (
+                    os.environ.get(
+                        "ELECTRUM_LCC_EXPERIMENTAL_HIVE_SPV"
+                    ) != "1"
+                    or "beta2-hive-experimental-"
+                    not in str(self.path())
+                ):
+                    return False
+
+                # LCC_EXPERIMENTAL_SUBSEQUENT_HIVE_V1
+                if classify_header(
+                    height, header['version'], header['nonce']
+                ) == 'hive':
+                    # LCC_EXPERIMENTAL_HIVE_EPOCH_GATES_V1
+                    if (
+                        height > FIRST_HIVE_BLOCK_HEIGHT + 2048
+                        and os.environ.get(
+                            "ELECTRUM_LCC_EXPERIMENTAL_HIVE11_CONTINUATION"
+                        ) != "1"
+                    ):
+                        return False
+
+                    if (
+                        height >= 2540160
+                        and os.environ.get(
+                            "ELECTRUM_LCC_EXPERIMENTAL_MINOTAURX_CONTINUATION"
+                        ) != "1"
+                    ):
+                        return False
+
+                    receipt = getattr(
+                        self,
+                        "_lcc_experimental_hive_receipt",
+                        None,
+                    )
+                    return receipt == (
+                        height,
+                        prev_hash,
+                        hash_header(header),
+                    )
+
+                # LCC_EXPERIMENTAL_MINOTAURX_LWMA_V1
+                # Only on an isolated chain with all three opt-ins.
+                # Hive candidates still require a verified receipt.
+                if height >= 2540160:
+                    if (
+                        os.environ.get(
+                            "ELECTRUM_LCC_EXPERIMENTAL_HIVE11_CONTINUATION"
+                        ) != "1"
+                        or os.environ.get(
+                            "ELECTRUM_LCC_EXPERIMENTAL_MINOTAURX_CONTINUATION"
+                        ) != "1"
+                    ):
+                        return False
+
+                    from .lcc_postfork_pow import (
+                        verify_postfork_pow_header,
+                    )
+
+                    result = verify_postfork_pow_header(
+                        candidate_header=header,
+                        get_header=self.read_header,
+                    )
+
+                    return result.get("pow_verified") is True
+
+                # LCC_EXPERIMENTAL_DGW_HIVE11_CONTINUATION_V1
+                # A separate opt-in is mandatory beyond the
+                # original 2048-block laboratory window.
+                if height > FIRST_HIVE_BLOCK_HEIGHT + 2048:
+                    if (
+                        os.environ.get(
+                            "ELECTRUM_LCC_EXPERIMENTAL_HIVE11_CONTINUATION"
+                        ) != "1"
+                        or height >= 2540160
+                    ):
+                        return False
+
+                    if classify_header(
+                        height,
+                        header["version"],
+                        header["nonce"],
+                    ) != "sha256d":
+                        return False
+
+                    from .lcc_bip9 import (
+                        State,
+                        cached_state_for_height,
+                    )
+                    from .lcc_mainnet import mainnet_bip9_deployments
+                    from .lcc_dgw_hive11 import next_dgw_bits
+
+                    # Core checks Hive 1.1 using pindexLast,
+                    # the parent of the candidate block.
+                    deployment = mainnet_bip9_deployments()["hive11"]
+
+                    hive11_active = (
+                        cached_state_for_height(
+                            height,
+                            self.read_header,
+                            deployment,
+                        ) == State.ACTIVE
+                    )
+
+                    expected_bits = next_dgw_bits(
+                        height=height,
+                        get_header=self.read_header,
+                        hive11_active=hive11_active,
+                    )
+
+                    self.verify_header(
+                        header,
+                        prev_hash,
+                        self.bits_to_target(expected_bits),
+                    )
+                    return True
+
+                # LCC_EXPERIMENTAL_POST_HIVE_SHA256D_V1
+                # Restricted laboratory continuation.
+                # Do not cross into Hive 1.1 or MinotaurX.
+                if not (
+                    FIRST_HIVE_BLOCK_HEIGHT < height
+                    <= FIRST_HIVE_BLOCK_HEIGHT + 2048
+                ):
+                    return False
+
+                if classify_header(
+                    height,
+                    header["version"],
+                    header["nonce"],
+                ) != "sha256d":
+                    return False
+
+                from .lcc_bip9 import (
+                    cached_state_for_height,
+                    State,
+                )
+                from .lcc_mainnet import (
+                    mainnet_bip9_deployments,
+                )
+
+                deployment = mainnet_bip9_deployments()["hive11"]
+
+                if cached_state_for_height(
+                    height,
+                    self.read_header,
+                    deployment,
+                ) == State.ACTIVE:
+                    return False
+
+                history = {}
+                cursor = height - 1
+                pow_count = 0
+
+                # Include intervening Hive headers, but only
+                # count SHA256d blocks in the DGW window.
+                while (
+                    pow_count < 24
+                    and cursor >= 0
+                    and height - cursor <= 256
+                ):
+                    previous = self.read_header(cursor)
+
+                    if previous is None:
+                        return False
+
+                    kind = classify_header(
+                        cursor,
+                        previous["version"],
+                        previous["nonce"],
+                    )
+
+                    if kind not in ("sha256d", "hive"):
+                        return False
+
+                    history[cursor] = previous
+
+                    if kind == "sha256d":
+                        pow_count += 1
+
+                    cursor -= 1
+
+                if pow_count != 24:
+                    return False
+
+                expected_bits = self.dgw_next_bits_pre_hive11(
+                    height,
+                    history,
+                )
+
+                self.verify_header(
+                    header,
+                    prev_hash,
+                    self.bits_to_target(expected_bits),
+                )
+
+                return True
 
             self.verify_header(
                 header,
@@ -1030,14 +1358,9 @@ class Blockchain(Logger):
     def connect_chunk(self, idx: int, data: bytes) -> bool:
         assert idx >= 0, idx
         try:
-            try:
-                self.verify_chunk(idx, data)
-            except NotImplementedError:
-                if os.environ.get(
-                    "ELECTRUM_LCC_TRUST_LOCAL_CORE"
-                ) != "1":
-                    raise
-                self._lcc_verify_core_chunk(idx, data)
+            # All headers must pass independent local consensus checks.
+            # Unsupported Hive rules fail closed; no trusted-Core bypass.
+            self.verify_chunk(idx, data)
 
             self.save_chunk(idx, data)
             return True

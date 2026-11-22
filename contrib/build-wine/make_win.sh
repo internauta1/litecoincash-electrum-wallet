@@ -67,6 +67,8 @@ else
     "$CONTRIB"/make_mwebd.sh || fail "Could not build mwebd"
 fi
 
+"$here/build-lcc-minotaurx.sh" || fail "LCC MinotaurX Windows build failed"
+
 "$here/prepare-wine.sh" || fail "prepare-wine failed"
 
 info "Resetting modification time in C:\Python..."
