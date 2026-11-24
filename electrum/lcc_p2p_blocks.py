@@ -316,7 +316,10 @@ async def fetch_verified_hive_block(
 
         except (OSError, asyncio.TimeoutError, LCCP2PError,
                 ValueError, EOFError) as exc:
-            errors.append(f"{host}: {exc}")
+            # DEBUG2: TimeoutError often has an empty str(exc).
+            # Keep the failure type and port for actionable logs.
+            detail = str(exc) or type(exc).__name__
+            errors.append(f"{host}:{port}: {type(exc).__name__}: {detail}")
 
     raise LCCP2PError(
         "No peer supplied a valid requested block: "
