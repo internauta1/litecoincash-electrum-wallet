@@ -961,6 +961,7 @@ class Interface(Logger):
         *,
         peers=None,
         prefetched_full_block=None,
+        prefetched_raw_header=None,
     ):
         """Collect independent Hive evidence for a candidate block.
 
@@ -1015,12 +1016,23 @@ class Interface(Logger):
 
             parent_hash = hash_header(previous)
 
-        # Request the candidate without storing it.
-        raw_hex = await self.session.send_request(
-            "blockchain.block.header",
-            [height],
-            timeout=20,
-        )
+        # DEBUG2: the catch-up already downloaded this header in a
+        # batch. Reuse those same untrusted bytes, but retain all
+        # ancestry, P2P full-block and Hive cryptography checks.
+        # Callers not supplying bytes retain the original RPC path.
+        if prefetched_raw_header is None:
+            raw_hex = await self.session.send_request(
+                "blockchain.block.header",
+                [height],
+                timeout=20,
+            )
+        else:
+            if (
+                type(prefetched_raw_header) is not bytes
+                or len(prefetched_raw_header) != 80
+            ):
+                raise ValueError("Invalid prefetched Hive header")
+            raw_hex = prefetched_raw_header.hex()
 
         if not isinstance(raw_hex, str) or len(raw_hex) != 160:
             raise ValueError("Invalid candidate header response")
