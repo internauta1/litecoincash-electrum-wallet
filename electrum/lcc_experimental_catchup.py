@@ -112,6 +112,7 @@ class _LCCExperimentalHiveP2PPrefetch:
         self.tasks = {}
         self.peers = None
         self.specs = []
+        self.specs_by_height = {}
         self.semaphore = asyncio.Semaphore(3)
 
         if not self.enabled:
@@ -177,6 +178,7 @@ class _LCCExperimentalHiveP2PPrefetch:
 
             if kind == "hive":
                 self.specs.append((height, header))
+                self.specs_by_height[height] = header
 
     async def _fetch(self, candidate):
         import asyncio
@@ -218,7 +220,23 @@ class _LCCExperimentalHiveP2PPrefetch:
                 f"Missing prefetched Hive block at {height}"
             )
 
-        return await task
+        try:
+            return await task
+        except (OSError, asyncio.TimeoutError) as first_exc:
+            pass
+        except Exception as first_exc:
+            from .lcc_p2p_blocks import LCCP2PError
+            if not isinstance(first_exc, LCCP2PError):
+                raise
+
+        # DEBUG2: transient peer failures are retried locally once
+        # instead of throwing away the entire validated header batch.
+        # Neither failed attempt writes headers or bypasses checks.
+        candidate = self.specs_by_height[height]
+        await asyncio.sleep(0.3)
+        retry = asyncio.create_task(self._fetch(candidate))
+        self.tasks[height] = retry
+        return await retry
 
     async def close(self):
         if not self.tasks:
@@ -466,6 +484,9 @@ async def run_experimental_catchup(
                             height,
                             peers=prefetch.peers,
                             prefetched_full_block=full_block,
+                            prefetched_raw_header=batch_headers[
+                                height - start_height
+                            ],
                         )
                     else:
                         result = await interface.lcc_collect_hive_candidate(
