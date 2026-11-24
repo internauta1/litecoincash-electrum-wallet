@@ -113,6 +113,7 @@ class _LCCExperimentalHiveP2PPrefetch:
         self.peers = None
         self.specs = []
         self.specs_by_height = {}
+        self.retries = 0
         self.semaphore = asyncio.Semaphore(3)
 
         if not self.enabled:
@@ -220,19 +221,18 @@ class _LCCExperimentalHiveP2PPrefetch:
                 f"Missing prefetched Hive block at {height}"
             )
 
+        from .lcc_p2p_blocks import LCCP2PError
+
         try:
             return await task
-        except (OSError, asyncio.TimeoutError) as first_exc:
+        except (OSError, asyncio.TimeoutError, LCCP2PError):
             pass
-        except Exception as first_exc:
-            from .lcc_p2p_blocks import LCCP2PError
-            if not isinstance(first_exc, LCCP2PError):
-                raise
 
         # DEBUG2: transient peer failures are retried locally once
         # instead of throwing away the entire validated header batch.
         # Neither failed attempt writes headers or bypasses checks.
         candidate = self.specs_by_height[height]
+        self.retries += 1
         await asyncio.sleep(0.3)
         retry = asyncio.create_task(self._fetch(candidate))
         self.tasks[height] = retry
@@ -294,7 +294,8 @@ async def run_experimental_catchup(
         raise RuntimeError("Not an isolated selected chain")
 
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + max_seconds
+    started_at = loop.time()
+    deadline = started_at + max_seconds
 
     accepted_pow = 0
     accepted_hive = 0
@@ -543,11 +544,14 @@ async def run_experimental_catchup(
 
     interface.logger.warning(
         "LCC LAB CATCHUP FINISHED: height=%d "
-        "PoW=%d Hive=%d existing=%d",
+        "PoW=%d Hive=%d existing=%d "
+        "p2p_retries=%d elapsed=%.2fs",
         interface.blockchain.height(),
         accepted_pow,
         accepted_hive,
         already_present,
+        prefetch.retries,
+        loop.time() - started_at,
     )
 
     return {
